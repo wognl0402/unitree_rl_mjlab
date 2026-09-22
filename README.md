@@ -22,7 +22,11 @@ and sim-to-real deployment.
 
 ## 📦 Installation and Configuration
 
+For **Georgia Tech PACE-ICE**, start with the [PACE quickstart](doc/PACE_QUICKSTART.md): pinned installation, a one-robot Viser check, and browser access over SSH.
+
 Please refer to [setup.md](doc/setup_en.md) for installation and configuration steps.
+
+This fork keeps the original Unitree history in `upstream-main`. See [upstream tracking](doc/UPSTREAM.md) for the branch layout and update commands.
 
 
 ## 🔁 Process Overview
