@@ -22,6 +22,7 @@ from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 @dataclass(frozen=True)
 class PlayConfig:
   agent: Literal["zero", "random", "trained"] = "trained"
+  wandb_run_path: str | None = None
   checkpoint_file: str | None = None
   motion_file: str | None = None
   num_envs: int | None = None
@@ -75,12 +76,9 @@ def run_play(task_id: str, cfg: PlayConfig):
       print(f"[INFO]: Using local motion file: {cfg.motion_file}")
       motion_cmd.motion_file = cfg.motion_file
     elif DUMMY_MODE:
-      if not cfg.registry_name:
-        raise ValueError(
-          "Tracking tasks require either:\n"
-          "  --motion-file /path/to/motion.npz (local file)\n"
-          "  --registry-name your-org/motions/motion-name (download from WandB)"
-        )
+      raise ValueError(
+        "Tracking tasks require --motion-file /path/to/motion.npz (local file)."
+      )
   log_dir: Path | None = None
   resume_path: Path | None = None
   if TRAINED_MODE:
