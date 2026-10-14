@@ -110,6 +110,13 @@ class StableContactMoveCfg:
   stance_offset: float = 0.014
   """m, feet-midpoint minus pelvis offset along the command axis at reset (default stance)."""
 
+  foot_position_weight: float = 0.0
+  """Weight of mdp.foot_position_tracking (each foot's displacement along the command axis). 0 = off."""
+  foot_position_std: float = 0.06
+  """m, kernel width of the per-foot displacement reward."""
+  foot_offsets: tuple[float, float] = (0.014, 0.014)
+  """m, (left, right) foot-site position along the command axis minus the pelvis at reset."""
+
   gravity_hold_joints: tuple[str, ...] = ()
   """Joint regexes whose zero-action position target cancels gravity at the default
   pose (mdp.GravityHoldJointPositionAction). Empty = stock offset (V1 baseline)."""
@@ -236,6 +243,13 @@ def make_stable_contact_move_env_cfg(
     cfg.rewards["stance_position"] = RewardTermCfg(
       func=mdp.stance_position_tracking, weight=task.stance_position_weight,
       params={"command_name": "twist", "std": task.stance_position_std, "offset": task.stance_offset,
+              "asset_cfg": SceneEntityCfg("robot", site_names=("left_foot", "right_foot"), preserve_order=True)},
+    )
+
+  if task.foot_position_weight:
+    cfg.rewards["foot_position"] = RewardTermCfg(
+      func=mdp.foot_position_tracking, weight=task.foot_position_weight,
+      params={"command_name": "twist", "std": task.foot_position_std, "offsets": task.foot_offsets,
               "asset_cfg": SceneEntityCfg("robot", site_names=("left_foot", "right_foot"), preserve_order=True)},
     )
 

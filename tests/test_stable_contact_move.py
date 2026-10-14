@@ -752,5 +752,129 @@ def test_stancetrack_differs_from_postrack_only_by_stance_reward():
 
 
 def test_earlier_tasks_have_no_stance_reward():
-  for task in [t for t in list_tasks() if "Contact" in t and not t.endswith("StanceTrack")]:
+  for task in [t for t in list_tasks() if "Contact" in t and "StanceTrack" not in t]:
     assert "stance_position" not in load_env_cfg(task).rewards, task
+
+
+# --- Per-foot commanded-displacement reward (Move08-PosTrack-StanceTrack-FootTrack) ---
+
+FOOT_TASK = "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack-FootTrack"
+REF = 0.014  # each foot's reset x relative to the pelvis target
+
+
+def _feet_env(d, left_dx, right_dx, left_extra=(0.0, 0.0), right_extra=(0.0, 0.0)):
+  """Pelvis target at displacement d; feet at reference + their displacement (+ optional y/z)."""
+  feet = [[[REF + left_dx, 0.12 + left_extra[0], left_extra[1]], [REF + right_dx, -0.12 + right_extra[0], right_extra[1]]]]
+  return _fake_stance_env([[d, 0.0]], feet)
+
+
+def _foot(env, cfg, offsets=(REF, REF)):
+  return mdp.foot_position_tracking(env, "twist", std=0.06, offsets=offsets, asset_cfg=cfg)[0].item()
+
+
+def test_foot_reward_ordering_and_symmetry():
+  for d in (0.08, -0.08):
+    s = 1.0 if d > 0 else -1.0
+    r = {k: _foot(*_feet_env(d, s * l, s * rr)) for k, (l, rr) in
+         {"both": (0.08, 0.08), "trail4": (0.08, 0.04), "trail2": (0.08, 0.02), "leader": (0.08, 0.0),
+          "wrong": (0.08, -0.02), "none": (0.0, 0.0), "both_wrong": (-0.02, -0.02)}.items()}
+    assert r["both"] == pytest.approx(1.0, abs=1e-6)
+    assert r["both"] > r["trail4"] > r["trail2"] > r["leader"] > r["wrong"] > r["none"]
+    assert r["both_wrong"] < r["none"]  # moving both feet the wrong way is worse than not moving
+    assert r["leader"] == pytest.approx(0.5 * (1 + math.exp(-(0.08 / 0.06) ** 2)), abs=1e-6)  # partial, not full
+    if d > 0:
+      pos = r
+  assert all(pos[k] == pytest.approx(r[k], abs=1e-6) for k in r)  # symmetric in d
+
+
+def test_foot_reward_keeps_each_foot_reference_and_zero_command():
+  # Zero command: each foot at its own reference is maximal (no incentive to align or move feet).
+  assert _foot(*_feet_env(0.0, 0.0, 0.0)) == pytest.approx(1.0, abs=1e-6)
+  # Different per-foot references are honoured (target = own reference + d, not a shared point).
+  env, cfg = _fake_stance_env([[0.05, 0.0]], [[[0.03 + 0.05, 0.12, 0.0], [-0.01 + 0.05, -0.12, 0.0]]])
+  assert _foot(env, cfg, offsets=(0.03, -0.01)) == pytest.approx(1.0, abs=1e-6)
+  assert _foot(env, cfg, offsets=(REF, REF)) < 0.95
+
+
+def test_foot_reward_ignores_lateral_and_vertical_motion():
+  base = _foot(*_feet_env(0.08, 0.08, 0.02))
+  moved = _foot(*_feet_env(0.08, 0.08, 0.02, left_extra=(0.15, 0.06), right_extra=(-0.1, 0.03)))
+  assert moved == pytest.approx(base, abs=1e-6)
+  env, cfg = _feet_env(0.08, 0.08, 0.02)
+  out = mdp.foot_position_tracking(env, "twist", std=0.06, offsets=(REF, REF), asset_cfg=cfg)
+  assert out.shape == (1,) and torch.all(torch.isfinite(out))
+
+
+def test_foot_offsets_match_reset_geometry():
+  cfg = load_env_cfg(FOOT_TASK)
+  cfg.scene.num_envs = 4
+  cfg.commands["twist"].displacement_range = 0.0
+  cfg.curriculum = {}
+  env = ManagerBasedRlEnv(cfg=cfg, device="cpu")
+  env.reset()
+  robot = env.scene["robot"]
+  params = env.reward_manager.get_term_cfg("foot_position").params
+  sid = params["asset_cfg"].site_ids
+  rel = robot.data.site_pos_w[:, sid, 0] - robot.data.root_link_pos_w[:, None, 0]
+  assert torch.allclose(rel, torch.tensor(params["offsets"]).expand_as(rel), atol=1e-3)
+  assert torch.allclose(mdp.foot_position_tracking(env, **params), torch.ones(4), atol=1e-3)
+  env.close()
+
+
+def test_foot_targets_fixed_while_feet_move_and_follow_resampling():
+  cfg = load_env_cfg(FOOT_TASK)
+  cfg.scene.num_envs = 4
+  env = ManagerBasedRlEnv(cfg=cfg, device="cpu")
+  env.reset()
+  term = env.command_manager.get_term("twist")
+  robot = env.scene["robot"]
+  params = env.reward_manager.get_term_cfg("foot_position").params
+  sid = params["asset_cfg"].site_ids
+  off = torch.tensor(params["offsets"])
+
+  def expected():
+    feet = robot.data.site_pos_w[:, sid, :2]
+    e = ((term.target_pos_w[:, None, :] - feet) * term.direction).sum(-1) + off
+    return torch.exp(-(e / params["std"]) ** 2).mean(-1)
+
+  target0 = term.target_pos_w.clone()
+  r0 = mdp.foot_position_tracking(env, **params)
+  # Teleport the robot 5 cm along the axis: feet move, targets do not.
+  pose = torch.cat([robot.data.root_link_pos_w, robot.data.root_link_quat_w], dim=-1).clone()
+  pose[:, :2] += 0.05 * term.direction
+  robot.write_root_link_pose_to_sim(pose)
+  env.sim.forward()
+  assert torch.equal(term.target_pos_w, target0)
+  r1 = mdp.foot_position_tracking(env, **params)
+  assert torch.allclose(r1, expected()) and not torch.allclose(r1, r0)
+  # Resampling the command moves both foot targets by the new displacement.
+  term.cfg.displacement_range = 0.08
+  term._resample_command(torch.arange(4))
+  assert not torch.equal(term.target_pos_w, target0)
+  assert torch.allclose(mdp.foot_position_tracking(env, **params), expected())
+  env.close()
+
+
+def test_foottrack_differs_from_stancetrack_only_by_foot_reward():
+  from dataclasses import fields as dc_fields
+
+  def same(x, y):
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  s = load_env_cfg(STANCE_TASK)
+  f = load_env_cfg(FOOT_TASK)
+  for fld in dc_fields(s):
+    if fld.name != "rewards":
+      assert same(getattr(s, fld.name), getattr(f, fld.name)), fld.name
+  assert set(f.rewards) - set(s.rewards) == {"foot_position"} and set(s.rewards) <= set(f.rewards)
+  for name in s.rewards:
+    assert same(s.rewards[name], f.rewards[name]), name
+  t = f.rewards["foot_position"]
+  assert t.func is mdp.foot_position_tracking and t.weight == 1.0
+  assert (t.params["std"], t.params["offsets"], t.params["asset_cfg"].site_names) == (0.06, (0.014, 0.014), ("left_foot", "right_foot"))
+  assert same(load_rl_cfg(STANCE_TASK), load_rl_cfg(FOOT_TASK))
+
+
+def test_earlier_tasks_have_no_foot_reward():
+  for task in [t for t in list_tasks() if "Contact" in t and not t.endswith("FootTrack")]:
+    assert "foot_position" not in load_env_cfg(task).rewards, task

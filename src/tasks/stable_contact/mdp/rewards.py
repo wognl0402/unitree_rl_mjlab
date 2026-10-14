@@ -44,6 +44,7 @@ __all__ = [
   "unintended_surface_contact",
   "body_position_tracking",
   "stance_position_tracking",
+  "foot_position_tracking",
 ]
 
 
@@ -234,3 +235,28 @@ def stance_position_tracking(
   midpoint = robot.data.site_pos_w[:, asset_cfg.site_ids, :2].mean(dim=1)
   error = (term.target_pos_w - midpoint) @ term.direction + offset
   return torch.exp(-torch.square(error / std))
+
+
+def foot_position_tracking(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  std: float,
+  offsets: tuple[float, ...],
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Mean over feet of exp(-(e_k / std)^2), per-foot displacement along the command axis.
+
+  Each foot should undergo the commanded displacement from its OWN reference. The
+  displacement command is absolute (target_pos_w = env_origin + d * direction), so
+  foot k's target is target_pos_w + offsets[k] * direction, where offsets[k] is that
+  foot's default-stance position along the axis relative to the pelvis target at reset
+  (e_k = d - foot k's displacement from its reset position). Targets change only when
+  the command is resampled. Lateral and vertical foot motion are not rewarded; the
+  swing foot is included (no contact gating).
+  """
+  term = env.command_manager.get_term(command_name)
+  robot: Entity = env.scene[asset_cfg.name]
+  feet = robot.data.site_pos_w[:, asset_cfg.site_ids, :2]  # [B, K, 2]
+  off = torch.tensor(offsets, device=feet.device, dtype=feet.dtype)
+  error = ((term.target_pos_w[:, None, :] - feet) * term.direction).sum(-1) + off  # [B, K]
+  return torch.exp(-torch.square(error / std)).mean(dim=-1)
