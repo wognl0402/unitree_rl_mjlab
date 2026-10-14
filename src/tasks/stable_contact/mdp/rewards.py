@@ -42,6 +42,7 @@ __all__ = [
   "hand_contact_persistence",
   "hand_contact_break",
   "unintended_surface_contact",
+  "body_position_tracking",
 ]
 
 
@@ -189,3 +190,23 @@ def unintended_surface_contact(env: ManagerBasedRlEnv, sensor_name: str) -> torc
   sensor: ContactSensor = env.scene[sensor_name]
   assert sensor.data.found is not None
   return (sensor.data.found > 0).float().sum(dim=-1)
+
+
+def body_position_tracking(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  std: float,
+  asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+  """exp(-(e / std)^2), e = signed pelvis position error along the displacement
+  command's direction (world frame).
+
+  The target is the displacement command's own world-frame goal
+  (``target_pos_w = env_origin + displacement * direction``, fixed until the
+  command is resampled), not a point that moves with the robot. Motion
+  perpendicular to the command axis and vertical motion are not rewarded.
+  """
+  term = env.command_manager.get_term(command_name)
+  robot: Entity = env.scene[asset_cfg.name]
+  error = (term.target_pos_w - robot.data.root_link_pos_w[:, :2]) @ term.direction
+  return torch.exp(-torch.square(error / std))

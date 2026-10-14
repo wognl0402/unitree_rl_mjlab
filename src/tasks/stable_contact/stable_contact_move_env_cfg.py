@@ -23,6 +23,7 @@ from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.metrics_manager import MetricsTermCfg
+from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 
@@ -96,6 +97,11 @@ class StableContactMoveCfg:
   outside). None = (0, force_limit). Only used if hand_force_band has a weight."""
   force_band_std: float = 1.0
   """N, falloff width of hand_force_band outside the band."""
+
+  body_position_weight: float = 0.0
+  """Weight of mdp.body_position_tracking (pelvis error along the command axis). 0 = off."""
+  body_position_std: float = 0.06
+  """m, kernel width of the body-position reward."""
 
   gravity_hold_joints: tuple[str, ...] = ()
   """Joint regexes whose zero-action position target cancels gravity at the default
@@ -212,6 +218,12 @@ def make_stable_contact_move_env_cfg(
     cfg.rewards.pop(name)
   pose = cfg.rewards["pose"].params
   pose["std_standing"] = dict(pose["std_walking"])  # Displaced holding postures.
+
+  if task.body_position_weight:
+    cfg.rewards["body_position"] = RewardTermCfg(
+      func=mdp.body_position_tracking, weight=task.body_position_weight,
+      params={"command_name": "twist", "std": task.body_position_std},
+    )
 
   # Terminations (time_out and fell_over are inherited).
   cfg.terminations.update({

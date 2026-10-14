@@ -498,3 +498,133 @@ def test_force_band_reward_shape():
     rw.surface_normal_w, rw.hand_contact_force_w, rw.hand_in_contact = orig
   expect = [0.0, math.exp(-(3 / 5) ** 2), 1.0, math.exp(-1.0), math.exp(-4.0), math.exp(-25.0)]
   assert torch.allclose(r, torch.tensor(expect), atol=1e-6)
+
+
+def test_move08_task_differs_from_forceband_only_in_displacement_command():
+  """Movement stage 1: ForceBand with the +-0.08 m displacement range active from step 0."""
+  from dataclasses import fields as dc_fields
+
+  def same(x, y):  # repr without per-call function addresses
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  fb = load_env_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand")
+  mv = load_env_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08")
+  for f in dc_fields(fb):
+    if f.name not in ("commands", "curriculum"):
+      assert same(getattr(fb, f.name), getattr(mv, f.name)), f.name
+  a, b = fb.commands["twist"], mv.commands["twist"]
+  for f in dc_fields(a):
+    if f.name != "displacement_range":
+      assert getattr(a, f.name) == getattr(b, f.name), f.name
+  assert (a.displacement_range, b.displacement_range) == (0.0, 0.08)
+  assert fb.curriculum["displacement"].params["stages"] == ((0, 0.0), (500 * 24, 0.08), (1500 * 24, 0.15))
+  assert mv.curriculum["displacement"].params["stages"] == ((0, 0.08),)
+  assert same(load_rl_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand"),
+              load_rl_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08"))
+
+
+def test_move08_gain2p5_differs_from_move08_only_in_position_gain():
+  """A/B control: Move08-Gain2p5 == Move08 except commands.twist.position_gain (1.0 -> 2.5)."""
+  from dataclasses import fields as dc_fields
+
+  def same(x, y):  # repr without per-call function addresses
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  g1 = load_env_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08")
+  g2 = load_env_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-Gain2p5")
+  for f in dc_fields(g1):
+    if f.name != "commands":
+      assert same(getattr(g1, f.name), getattr(g2, f.name)), f.name
+  assert g1.commands.keys() == g2.commands.keys()
+  a, b = g1.commands["twist"], g2.commands["twist"]
+  for f in dc_fields(a):
+    if f.name != "position_gain":
+      assert getattr(a, f.name) == getattr(b, f.name), f.name
+  assert (a.position_gain, b.position_gain) == (1.0, 2.5)
+  assert b.max_speed == 0.2 and b.displacement_range == 0.08
+  assert same(load_rl_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08"),
+              load_rl_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-Gain2p5"))
+
+
+# --- Body-position tracking reward (Move08-PosTrack) ---
+
+def _fake_pos_env(target_xy, base_xy, direction=(1.0, 0.0)):
+  d = torch.tensor(direction)
+  term = SimpleNamespace(target_pos_w=torch.tensor(target_xy, dtype=torch.float32), direction=d / d.norm())
+  base = torch.tensor(base_xy, dtype=torch.float32)
+  robot = SimpleNamespace(data=SimpleNamespace(root_link_pos_w=torch.cat([base, torch.full((len(base), 1), 0.78)], dim=1)))
+  return SimpleNamespace(command_manager=SimpleNamespace(get_term=lambda name: term), scene={"robot": robot})
+
+
+def test_body_position_reward_max_at_zero_monotone_symmetric():
+  errs = torch.tensor([0.0, 0.01, 0.02, 0.04, 0.06, 0.08])
+  for sign in (1.0, -1.0):
+    env = _fake_pos_env([[sign * e.item(), 0.0] for e in errs], [[0.0, 0.0]] * len(errs))
+    r = mdp.body_position_tracking(env, "twist", std=0.06)
+    assert r.shape == (len(errs),) and torch.all(torch.isfinite(r))
+    assert r[0] == pytest.approx(1.0)
+    assert torch.all(r[1:] < r[:-1])  # strictly decreasing with |error|
+    if sign > 0:
+      pos = r
+  assert torch.allclose(pos, r)  # + and - errors give the same reward
+  assert pos[-1] == pytest.approx(math.exp(-(0.08 / 0.06) ** 2), abs=1e-6)
+
+
+def test_body_position_reward_ignores_off_axis_and_handles_zero_command():
+  # Off-axis (wall-normal) and vertical pelvis offsets are not rewarded or penalized.
+  env = _fake_pos_env([[0.0, 0.0], [0.0, 0.0]], [[0.0, 0.05], [0.0, -0.05]])
+  assert torch.allclose(mdp.body_position_tracking(env, "twist", std=0.06), torch.ones(2))
+  # Zero command: target at the origin; standing there is maximal.
+  env = _fake_pos_env([[0.0, 0.0]], [[0.0, 0.0]])
+  assert mdp.body_position_tracking(env, "twist", std=0.06)[0] == pytest.approx(1.0)
+
+
+def test_body_position_reward_uses_command_target_fixed_in_world():
+  task = "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack"
+  cfg = load_env_cfg(task)
+  cfg.scene.num_envs = 4
+  env = ManagerBasedRlEnv(cfg=cfg, device="cpu")
+  env.reset()
+  term = env.command_manager.get_term("twist")
+  robot = env.scene["robot"]
+  params = env.reward_manager.get_term_cfg("body_position").params
+  target0 = term.target_pos_w.clone()
+  base0 = robot.data.root_link_pos_w[:, :2].clone()
+  alive = torch.ones(4, dtype=torch.bool)  # envs not reset yet (a reset legitimately resamples the target)
+  moved = torch.zeros(4)
+  for _ in range(40):  # 0.8 s < minimum resampling time (4 s)
+    _, _, terminated, truncated, _ = env.step(0.2 * (2 * torch.rand(4, NUM_JOINTS) - 1))
+    alive &= ~(terminated | truncated)
+    # Same target as the displacement command, and it does not follow the pelvis.
+    assert torch.equal(term.target_pos_w[alive], target0[alive])
+    err = (term.target_pos_w - robot.data.root_link_pos_w[:, :2]) @ term.direction
+    expected = torch.exp(-(err / params["std"]) ** 2)
+    assert torch.allclose(mdp.body_position_tracking(env, **params), expected)
+    moved = torch.where(alive, (robot.data.root_link_pos_w[:, :2] - base0).norm(dim=-1), moved)
+  assert alive.any() and moved[alive].max() > 0.005  # the body moved while its target stayed put
+  env.close()
+
+
+def test_postrack_differs_from_gain2p5_only_by_body_position_reward():
+  from dataclasses import fields as dc_fields
+
+  def same(x, y):  # repr without per-call function addresses
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  g = load_env_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-Gain2p5")
+  p = load_env_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack")
+  for f in dc_fields(g):
+    if f.name != "rewards":
+      assert same(getattr(g, f.name), getattr(p, f.name)), f.name
+  assert set(p.rewards) - set(g.rewards) == {"body_position"} and set(g.rewards) <= set(p.rewards)
+  for name in g.rewards:
+    assert same(g.rewards[name], p.rewards[name]), name
+  t = p.rewards["body_position"]
+  assert t.func is mdp.body_position_tracking and t.weight == 1.0 and t.params == {"command_name": "twist", "std": 0.06}
+  assert same(load_rl_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-Gain2p5"),
+              load_rl_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack"))
+
+
+def test_earlier_tasks_have_no_body_position_reward():
+  for task in [t for t in list_tasks() if "Contact" in t and not t.endswith("PosTrack")]:
+    assert "body_position" not in load_env_cfg(task).rewards, task

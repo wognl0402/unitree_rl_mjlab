@@ -78,3 +78,65 @@ register_mjlab_task(
   rl_cfg=unitree_g1_stable_contact_ppo_runner_cfg(),
   runner_cls=VelocityOnPolicyRunner,
 )
+
+# EXPERIMENTAL movement stage 1 of GravHold-ForceBand: identical except the body
+# displacement command starts directly at +-0.08 m (no stationary stage, no 0.15 m
+# stage). Used to warm-start from a validated stationary ForceBand checkpoint, since
+# the step-based curriculum restarts from env step 0 in a resumed run.
+_GRAV_HOLD_FORCE_BAND_MOVE08 = StableContactMoveCfg(
+  gravity_hold_joints=_GRAV_HOLD_FORCE_BAND.gravity_hold_joints,
+  contact_weights=_GRAV_HOLD_FORCE_BAND.contact_weights,
+  force_band=_GRAV_HOLD_FORCE_BAND.force_band,
+  force_band_std=_GRAV_HOLD_FORCE_BAND.force_band_std,
+  displacement_range=0.08,
+  displacement_stages=((0, 0.08),),
+)
+register_mjlab_task(
+  task_id="Unitree-G1-StableContactMove-GravHold-ForceBand-Move08",
+  env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08),
+  play_env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08, play=True),
+  rl_cfg=unitree_g1_stable_contact_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+# EXPERIMENTAL A/B variant of Move08: identical except the displacement command's
+# position_gain (1.0 -> 2.5 /s). With gain 1.0 a <= 0.08 m position error never
+# commands more than 0.08 m/s, below the gait reward's 0.1 m/s activation threshold.
+_GRAV_HOLD_FORCE_BAND_MOVE08_GAIN2P5 = StableContactMoveCfg(
+  gravity_hold_joints=_GRAV_HOLD_FORCE_BAND_MOVE08.gravity_hold_joints,
+  contact_weights=_GRAV_HOLD_FORCE_BAND_MOVE08.contact_weights,
+  force_band=_GRAV_HOLD_FORCE_BAND_MOVE08.force_band,
+  force_band_std=_GRAV_HOLD_FORCE_BAND_MOVE08.force_band_std,
+  displacement_range=_GRAV_HOLD_FORCE_BAND_MOVE08.displacement_range,
+  displacement_stages=_GRAV_HOLD_FORCE_BAND_MOVE08.displacement_stages,
+  position_gain=2.5,
+)
+register_mjlab_task(
+  task_id="Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-Gain2p5",
+  env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_GAIN2P5),
+  play_env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_GAIN2P5, play=True),
+  rl_cfg=unitree_g1_stable_contact_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+# EXPERIMENTAL A/B variant of Move08-Gain2p5: identical plus a direct pelvis-position
+# tracking reward along the command axis (weight 1.0, std 0.06 m) toward the
+# displacement command's own world-frame target.
+_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK = StableContactMoveCfg(
+  gravity_hold_joints=_GRAV_HOLD_FORCE_BAND_MOVE08_GAIN2P5.gravity_hold_joints,
+  contact_weights=_GRAV_HOLD_FORCE_BAND_MOVE08_GAIN2P5.contact_weights,
+  force_band=_GRAV_HOLD_FORCE_BAND_MOVE08_GAIN2P5.force_band,
+  force_band_std=_GRAV_HOLD_FORCE_BAND_MOVE08_GAIN2P5.force_band_std,
+  displacement_range=_GRAV_HOLD_FORCE_BAND_MOVE08_GAIN2P5.displacement_range,
+  displacement_stages=_GRAV_HOLD_FORCE_BAND_MOVE08_GAIN2P5.displacement_stages,
+  position_gain=_GRAV_HOLD_FORCE_BAND_MOVE08_GAIN2P5.position_gain,
+  body_position_weight=1.0,
+  body_position_std=0.06,
+)
+register_mjlab_task(
+  task_id="Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack",
+  env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK),
+  play_env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK, play=True),
+  rl_cfg=unitree_g1_stable_contact_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)

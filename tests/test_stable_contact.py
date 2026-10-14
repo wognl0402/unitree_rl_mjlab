@@ -170,6 +170,9 @@ def test_baseline_velocity_task_untouched():
   assert sorted(t for t in list_tasks() if "Contact" in t) == [
     "Unitree-G1-StableContactMove", "Unitree-G1-StableContactMove-GravHold",
     "Unitree-G1-StableContactMove-GravHold-Contact4", "Unitree-G1-StableContactMove-GravHold-ForceBand",
+    "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08",
+    "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-Gain2p5",
+    "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack",
     "Unitree-G1-StableContactMove-GravHold-Slip1"]
   cfg = load_env_cfg("Unitree-G1-Flat")
   assert "wall" not in cfg.scene.entities
