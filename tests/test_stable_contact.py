@@ -166,8 +166,11 @@ def test_target_is_mirrored_per_hand():
 def test_baseline_velocity_task_untouched():
   from mjlab.tasks.registry import list_tasks, load_env_cfg
 
-  # Only the separately registered experimental task; the baseline is unchanged.
-  assert [t for t in list_tasks() if "Contact" in t] == ["Unitree-G1-StableContactMove"]
+  # Only the separately registered experimental tasks; the baseline is unchanged.
+  assert sorted(t for t in list_tasks() if "Contact" in t) == [
+    "Unitree-G1-StableContactMove", "Unitree-G1-StableContactMove-GravHold",
+    "Unitree-G1-StableContactMove-GravHold-Contact4", "Unitree-G1-StableContactMove-GravHold-ForceBand",
+    "Unitree-G1-StableContactMove-GravHold-Slip1"]
   cfg = load_env_cfg("Unitree-G1-Flat")
   assert "wall" not in cfg.scene.entities
   assert cfg.commands["twist"].rel_standing_envs == pytest.approx(0.05)

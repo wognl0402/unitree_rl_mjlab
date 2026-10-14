@@ -26,6 +26,7 @@ TASK = "Unitree-G1-StableContactMove"
 
 def main() -> None:
   parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+  parser.add_argument("--task", default=TASK)
   parser.add_argument("--agent", choices=("zero", "random"), default="zero")
   parser.add_argument("--num-envs", type=int, default=1)
   parser.add_argument("--steps", type=int, default=300)
@@ -36,7 +37,7 @@ def main() -> None:
   parser.add_argument("--log-every", type=int, default=25)
   args = parser.parse_args()
 
-  cfg = load_env_cfg(TASK)
+  cfg = load_env_cfg(args.task)
   cfg.scene.num_envs = args.num_envs
   cfg.seed = args.seed
   cfg.curriculum = {}
@@ -55,7 +56,7 @@ def main() -> None:
   sums = torch.zeros(len(rm.active_terms))
   metric_sums = torch.zeros(len(mm.active_terms))
 
-  print(f"task={TASK} agent={args.agent} envs={args.num_envs} steps={args.steps} "
+  print(f"task={args.task} agent={args.agent} envs={args.num_envs} steps={args.steps} "
         f"displacement_range={cfg.commands['twist'].displacement_range} m")
   header = ("step", "tgt_err", "contact", "F_n", "v_t", "cmd_v", "base_v", "tilt_deg", "reward")
   print(" ".join(f"{h:>8}" for h in header))

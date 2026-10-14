@@ -17,7 +17,7 @@ Training simplifications for V1 (documented, not research claims):
   - External pushes are disabled.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -91,6 +91,16 @@ class StableContactMoveCfg:
 
   episode_length_s: float = 20.0
 
+  force_band: tuple[float, float] | None = None
+  """N, (f_min, f_max) of the hand_force_band reward (1 inside, Gaussian falloff
+  outside). None = (0, force_limit). Only used if hand_force_band has a weight."""
+  force_band_std: float = 1.0
+  """N, falloff width of hand_force_band outside the band."""
+
+  gravity_hold_joints: tuple[str, ...] = ()
+  """Joint regexes whose zero-action position target cancels gravity at the default
+  pose (mdp.GravityHoldJointPositionAction). Empty = stock offset (V1 baseline)."""
+
   # Weights. Contact terms are new; motion/safety terms keep Unitree-G1-Flat values.
   contact_weights: dict[str, float] = field(default_factory=lambda: {
     "hand_target": 1.0,
@@ -135,8 +145,8 @@ def make_stable_contact_move_env_cfg(
   contact_rewards = make_contact_reward_terms(
     task.active_hand,
     task.contact_weights,
-    force_range=(0.0, task.force_limit),  # Unused: no force-band term in V1.
-    force_std=1.0,
+    force_range=task.force_band if task.force_band is not None else (0.0, task.force_limit),
+    force_std=task.force_band_std,
     force_limit=task.force_limit,
     target_local=target_local,
     target_std=task.target_std,
@@ -171,6 +181,13 @@ def make_stable_contact_move_env_cfg(
     joint_vel={".*": 0.0},
   )
   cfg.events.pop("push_robot", None)
+
+  if task.gravity_hold_joints:
+    base = cfg.actions["joint_pos"]
+    cfg.actions["joint_pos"] = mdp.GravityHoldJointPositionActionCfg(
+      **{f.name: getattr(base, f.name) for f in fields(base) if f.init},
+      hold_joint_names=task.gravity_hold_joints,
+    )
 
   # Motion command: same name and (vx, vy, wz) layout as the velocity task.
   cfg.commands["twist"] = mdp.BaseDisplacementCommandCfg(

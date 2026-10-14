@@ -4,6 +4,7 @@ Run: python -m pytest tests/test_stable_contact_move.py -q
 """
 
 import math
+import re
 from types import SimpleNamespace
 
 import mujoco
@@ -342,3 +343,158 @@ def test_random_rollout_rewards_and_metrics_finite():
       assert torch.isfinite(term.func(env, **term.params)).all(), name
     assert torch.isfinite(env.metrics_manager._step_values).all()
   env.close()
+
+
+def test_default_action_offset_is_stock_baseline(env):
+  """Gravity hold is opt-in: the registered task keeps the V1 joint-position offset."""
+  term = env.action_manager.get_term("joint_pos")
+  assert type(term) is mdp.actions.JointPositionAction
+  robot = env.scene["robot"]
+  assert torch.allclose(term.offset, robot.data.default_joint_pos[:, term.target_ids])
+
+
+def test_gravity_hold_offset_cancels_gravity_at_default_pose():
+  """offset - default = qfrc_bias / kp on the held joints (position servos, qvel = 0)."""
+  arm = r"left_(shoulder|elbow|wrist)_.*"
+  env = _build(StableContactMoveCfg(gravity_hold_joints=(arm, r"waist_.*")))
+  term = env.action_manager.get_term("joint_pos")
+  robot = env.scene["robot"]
+  m = env.sim.mj_model
+  d = mujoco.MjData(m)
+  root = robot.data.default_root_state[0].cpu().numpy()
+  free = next(j for j in range(m.njnt) if m.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE
+              and m.joint(j).name.startswith("robot/"))
+  a = m.jnt_qposadr[free]
+  d.qpos[a:a + 3] = (0.0, 0.0, root[2])
+  d.qpos[a + 3:a + 7] = root[3:7]
+  for name, q in zip(robot.joint_names, robot.data.default_joint_pos[0].tolist()):
+    d.qpos[m.jnt_qposadr[m.joint(f"robot/{name}").id]] = q
+  mujoco.mj_forward(m, d)
+  delta = (term.offset - robot.data.default_joint_pos[:, term.target_ids])[0]
+  held = 0
+  for i, name in enumerate(term.target_names):
+    full = f"robot/{name}"
+    act = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_ACTUATOR, full)
+    expect = d.qfrc_bias[m.jnt_dofadr[m.joint(full).id]] / m.actuator_gainprm[act, 0]
+    if re.fullmatch(arm, name) or name.startswith("waist_"):
+      held += 1
+      assert float(delta[i]) == pytest.approx(expect, abs=1e-5)
+    else:
+      assert float(delta[i]) == 0.0
+  assert held == 10
+  # The shoulder carries the abducted arm: the correction is not negligible.
+  assert float(delta[term.target_names.index("left_shoulder_pitch_joint")]) > 0.1
+  env.close()
+
+
+def test_gravhold_task_differs_from_baseline_only_in_action_offset():
+  """A/B control: the GravHold variant changes nothing but the joint_pos action term."""
+  from dataclasses import fields as dc_fields
+
+  def same(x, y):  # repr without per-call function addresses
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  base, grav = load_env_cfg(TASK), load_env_cfg("Unitree-G1-StableContactMove-GravHold")
+  for f in dc_fields(base):
+    if f.name != "actions":
+      assert same(getattr(base, f.name), getattr(grav, f.name)), f.name
+  a, b = base.actions["joint_pos"], grav.actions["joint_pos"]
+  assert type(b) is mdp.GravityHoldJointPositionActionCfg
+  for f in dc_fields(a):
+    assert getattr(a, f.name) == getattr(b, f.name), f.name
+  assert b.hold_joint_names == (r"left_(shoulder|elbow|wrist)_.*", r"waist_.*")
+  assert same(load_rl_cfg(TASK), load_rl_cfg("Unitree-G1-StableContactMove-GravHold"))
+
+
+def test_slip1_task_differs_from_gravhold_only_in_slip_weight():
+  """A/B control: GravHold-Slip1 == GravHold except rewards.hand_slip.weight (-10 -> -1)."""
+  from dataclasses import fields as dc_fields
+
+  def same(x, y):  # repr without per-call function addresses
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  grav = load_env_cfg("Unitree-G1-StableContactMove-GravHold")
+  slip1 = load_env_cfg("Unitree-G1-StableContactMove-GravHold-Slip1")
+  for f in dc_fields(grav):
+    if f.name != "rewards":
+      assert same(getattr(grav, f.name), getattr(slip1, f.name)), f.name
+  assert grav.rewards.keys() == slip1.rewards.keys()
+  for name in grav.rewards:
+    a, b = grav.rewards[name], slip1.rewards[name]
+    if name == "hand_slip":
+      assert (a.weight, b.weight) == (-10.0, -1.0)
+      assert a.func is b.func and same(a.params, b.params)
+    else:
+      assert same(a, b), name
+  assert same(load_rl_cfg("Unitree-G1-StableContactMove-GravHold"),
+              load_rl_cfg("Unitree-G1-StableContactMove-GravHold-Slip1"))
+
+
+def test_contact4_task_differs_from_slip1_only_by_hand_contact_term():
+  """A/B control: GravHold-Contact4 == GravHold-Slip1 plus rewards.hand_contact (weight +4)."""
+  from dataclasses import fields as dc_fields
+
+  def same(x, y):  # repr without per-call function addresses
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  slip1 = load_env_cfg("Unitree-G1-StableContactMove-GravHold-Slip1")
+  c4 = load_env_cfg("Unitree-G1-StableContactMove-GravHold-Contact4")
+  for f in dc_fields(slip1):
+    if f.name != "rewards":
+      assert same(getattr(slip1, f.name), getattr(c4, f.name)), f.name
+  assert set(c4.rewards) - set(slip1.rewards) == {"hand_contact"}
+  assert set(slip1.rewards) - set(c4.rewards) == set()
+  for name in slip1.rewards:
+    assert same(slip1.rewards[name], c4.rewards[name]), name
+  assert slip1.rewards["hand_slip"].weight == -1.0
+  term = c4.rewards["hand_contact"]
+  assert term.weight == 4.0 and term.func is mdp.hand_contact
+  assert term.params == {"sensor_name": hand_sensor_name("left")}
+  assert same(load_rl_cfg("Unitree-G1-StableContactMove-GravHold-Slip1"),
+              load_rl_cfg("Unitree-G1-StableContactMove-GravHold-Contact4"))
+
+
+def test_forceband_task_differs_from_contact4_only_in_contact_reward():
+  """A/B control: ForceBand == Contact4 with hand_contact (+4) replaced by hand_force_band (+4)."""
+  from dataclasses import fields as dc_fields
+
+  def same(x, y):  # repr without per-call function addresses
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  c4 = load_env_cfg("Unitree-G1-StableContactMove-GravHold-Contact4")
+  fb = load_env_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand")
+  for f in dc_fields(c4):
+    if f.name != "rewards":
+      assert same(getattr(c4, f.name), getattr(fb, f.name)), f.name
+  assert set(c4.rewards) - set(fb.rewards) == {"hand_contact"}
+  assert set(fb.rewards) - set(c4.rewards) == {"hand_force_band"}
+  for name in set(c4.rewards) & set(fb.rewards):
+    assert same(c4.rewards[name], fb.rewards[name]), name
+  term = fb.rewards["hand_force_band"]
+  assert term.weight == 4.0 and term.func is mdp.hand_contact_force_band
+  assert term.params["force_range"] == (5.0, 15.0) and term.params["std"] == 5.0
+  assert term.params["sensor_name"] == hand_sensor_name("left")
+  assert c4.rewards["hand_contact"].weight == 4.0
+  # Thresholds of the force penalty / termination are untouched.
+  assert fb.rewards["hand_force_excess"].params["force_limit"] == 30.0
+  assert fb.terminations["hand_force_severe"].params["force_limit"] == 80.0
+  assert same(load_rl_cfg("Unitree-G1-StableContactMove-GravHold-Contact4"),
+              load_rl_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand"))
+
+
+def test_force_band_reward_shape():
+  """1 inside the band, exp(-(gap/std)^2) outside, 0 without contact."""
+  env = SimpleNamespace()
+  import src.tasks.stable_contact.mdp.rewards as rw
+  forces = torch.tensor([0.0, 2.0, 10.0, 20.0, 25.0, 40.0])
+  contact = torch.tensor([False, True, True, True, True, True])
+  orig = (rw.surface_normal_w, rw.hand_contact_force_w, rw.hand_in_contact)
+  try:
+    rw.surface_normal_w = lambda *a: torch.tensor([[0.0, -1.0, 0.0]]).expand(6, 3)
+    rw.hand_contact_force_w = lambda *a: torch.stack([torch.zeros(6), forces, torch.zeros(6)], -1)
+    rw.hand_in_contact = lambda *a: contact
+    r = rw.hand_contact_force_band(env, "s", "wall", (-1.0, 0.0, 0.0), (5.0, 15.0), 5.0)
+  finally:
+    rw.surface_normal_w, rw.hand_contact_force_w, rw.hand_in_contact = orig
+  expect = [0.0, math.exp(-(3 / 5) ** 2), 1.0, math.exp(-1.0), math.exp(-4.0), math.exp(-25.0)]
+  assert torch.allclose(r, torch.tensor(expect), atol=1e-6)
