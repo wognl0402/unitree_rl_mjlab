@@ -43,6 +43,7 @@ __all__ = [
   "hand_contact_break",
   "unintended_surface_contact",
   "body_position_tracking",
+  "stance_position_tracking",
 ]
 
 
@@ -209,4 +210,27 @@ def body_position_tracking(
   term = env.command_manager.get_term(command_name)
   robot: Entity = env.scene[asset_cfg.name]
   error = (term.target_pos_w - robot.data.root_link_pos_w[:, :2]) @ term.direction
+  return torch.exp(-torch.square(error / std))
+
+
+def stance_position_tracking(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  std: float,
+  offset: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """exp(-(e / std)^2) on the feet midpoint along the displacement command's axis.
+
+  The feet midpoint 0.5 * (left foot site + right foot site), swing foot included,
+  should undergo the same commanded displacement as the pelvis. Its target is the
+  command's own world-frame pelvis target plus ``offset`` along the command axis,
+  where ``offset`` is the midpoint-minus-pelvis offset of the default stance at reset
+  (so e = commanded displacement - midpoint displacement from its reset position).
+  Lateral and vertical foot motion are not rewarded.
+  """
+  term = env.command_manager.get_term(command_name)
+  robot: Entity = env.scene[asset_cfg.name]
+  midpoint = robot.data.site_pos_w[:, asset_cfg.site_ids, :2].mean(dim=1)
+  error = (term.target_pos_w - midpoint) @ term.direction + offset
   return torch.exp(-torch.square(error / std))

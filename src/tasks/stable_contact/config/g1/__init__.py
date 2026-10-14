@@ -140,3 +140,28 @@ register_mjlab_task(
   rl_cfg=unitree_g1_stable_contact_ppo_runner_cfg(),
   runner_cls=VelocityOnPolicyRunner,
 )
+
+# EXPERIMENTAL A/B variant of Move08-PosTrack: identical plus a feet-midpoint
+# (stance) displacement reward toward the same commanded displacement
+# (weight 1.0, std 0.06 m, reset offset 0.014 m).
+_GRAV_HOLD_FORCE_BAND_MOVE08_STANCE = StableContactMoveCfg(
+  gravity_hold_joints=_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK.gravity_hold_joints,
+  contact_weights=_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK.contact_weights,
+  force_band=_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK.force_band,
+  force_band_std=_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK.force_band_std,
+  displacement_range=_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK.displacement_range,
+  displacement_stages=_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK.displacement_stages,
+  position_gain=_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK.position_gain,
+  body_position_weight=_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK.body_position_weight,
+  body_position_std=_GRAV_HOLD_FORCE_BAND_MOVE08_POSTRACK.body_position_std,
+  stance_position_weight=1.0,
+  stance_position_std=0.06,
+  stance_offset=0.014,
+)
+register_mjlab_task(
+  task_id="Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack",
+  env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_STANCE),
+  play_env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_STANCE, play=True),
+  rl_cfg=unitree_g1_stable_contact_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)

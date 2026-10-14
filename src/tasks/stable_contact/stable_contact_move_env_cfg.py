@@ -103,6 +103,13 @@ class StableContactMoveCfg:
   body_position_std: float = 0.06
   """m, kernel width of the body-position reward."""
 
+  stance_position_weight: float = 0.0
+  """Weight of mdp.stance_position_tracking (feet midpoint along the command axis). 0 = off."""
+  stance_position_std: float = 0.06
+  """m, kernel width of the stance-position reward."""
+  stance_offset: float = 0.014
+  """m, feet-midpoint minus pelvis offset along the command axis at reset (default stance)."""
+
   gravity_hold_joints: tuple[str, ...] = ()
   """Joint regexes whose zero-action position target cancels gravity at the default
   pose (mdp.GravityHoldJointPositionAction). Empty = stock offset (V1 baseline)."""
@@ -223,6 +230,13 @@ def make_stable_contact_move_env_cfg(
     cfg.rewards["body_position"] = RewardTermCfg(
       func=mdp.body_position_tracking, weight=task.body_position_weight,
       params={"command_name": "twist", "std": task.body_position_std},
+    )
+
+  if task.stance_position_weight:
+    cfg.rewards["stance_position"] = RewardTermCfg(
+      func=mdp.stance_position_tracking, weight=task.stance_position_weight,
+      params={"command_name": "twist", "std": task.stance_position_std, "offset": task.stance_offset,
+              "asset_cfg": SceneEntityCfg("robot", site_names=("left_foot", "right_foot"), preserve_order=True)},
     )
 
   # Terminations (time_out and fell_over are inherited).

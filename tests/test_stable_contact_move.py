@@ -626,5 +626,131 @@ def test_postrack_differs_from_gain2p5_only_by_body_position_reward():
 
 
 def test_earlier_tasks_have_no_body_position_reward():
-  for task in [t for t in list_tasks() if "Contact" in t and not t.endswith("PosTrack")]:
+  for task in [t for t in list_tasks() if "Contact" in t and "PosTrack" not in t]:
     assert "body_position" not in load_env_cfg(task).rewards, task
+
+
+# --- Stance (feet-midpoint) displacement reward (Move08-PosTrack-StanceTrack) ---
+
+STANCE_TASK = "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack"
+
+
+def _fake_stance_env(target_xy, feet_xyz, direction=(1.0, 0.0)):
+  d = torch.tensor(direction)
+  term = SimpleNamespace(target_pos_w=torch.tensor(target_xy, dtype=torch.float32), direction=d / d.norm())
+  robot = SimpleNamespace(data=SimpleNamespace(site_pos_w=torch.tensor(feet_xyz, dtype=torch.float32)))
+  env = SimpleNamespace(command_manager=SimpleNamespace(get_term=lambda name: term), scene={"robot": robot})
+  return env, SimpleNamespace(name="robot", site_ids=[0, 1])
+
+
+def _stance(env, cfg, offset=0.014):
+  return mdp.stance_position_tracking(env, "twist", std=0.06, offset=offset, asset_cfg=cfg)
+
+
+def test_stance_reward_max_at_commanded_displacement_symmetric_monotone():
+  # Pelvis target at the commanded displacement d; feet midpoint at d + offset + error.
+  errs = [0.0, 0.01, 0.02, 0.04, 0.06, 0.08]
+  for d_cmd in (0.08, -0.08, 0.0):
+    for sign in (1.0, -1.0):
+      feet = [[[d_cmd + 0.014 + sign * e, 0.12, 0.0], [d_cmd + 0.014 + sign * e, -0.12, 0.0]] for e in errs]
+      env, cfg = _fake_stance_env([[d_cmd, 0.0]] * len(errs), feet)
+      r = _stance(env, cfg)
+      assert r.shape == (len(errs),) and torch.all(torch.isfinite(r))
+      assert r[0] == pytest.approx(1.0, abs=1e-6)
+      assert torch.all(r[1:] < r[:-1])
+      if sign > 0:
+        pos = r
+    assert torch.allclose(pos, r)  # symmetric in the sign of the error
+
+
+def test_stance_reward_ignores_lateral_and_vertical_foot_motion():
+  base = [[0.014, 0.12, 0.0], [0.014, -0.12, 0.0]]
+  wide = [[0.014, 0.25, 0.0], [0.014, -0.25, 0.0]]       # stance width only
+  shifted = [[0.014, 0.30, 0.0], [0.014, 0.05, 0.0]]     # both feet moved toward the wall
+  lifted = [[0.014, 0.12, 0.08], [0.014, -0.12, 0.0]]    # swing foot in the air
+  env, cfg = _fake_stance_env([[0.0, 0.0]] * 4, [base, wide, shifted, lifted])
+  assert torch.allclose(_stance(env, cfg), torch.ones(4))
+
+
+def test_stance_reward_uses_midpoint_including_swing_foot():
+  # One foot steps 4 cm forward: midpoint moves 2 cm.
+  env, cfg = _fake_stance_env([[0.02, 0.0]], [[[0.014 + 0.04, 0.12, 0.05], [0.014, -0.12, 0.0]]])
+  assert _stance(env, cfg)[0] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_stance_offset_matches_reset_geometry_and_zero_command_is_max():
+  cfg = load_env_cfg(STANCE_TASK)
+  cfg.scene.num_envs = 4
+  cfg.commands["twist"].displacement_range = 0.0  # zero command
+  cfg.curriculum = {}  # the Move08 curriculum would otherwise set +-0.08 m at reset
+  env = ManagerBasedRlEnv(cfg=cfg, device="cpu")
+  env.reset()
+  robot = env.scene["robot"]
+  params = env.reward_manager.get_term_cfg("stance_position").params
+  sid = params["asset_cfg"].site_ids
+  mid_x = robot.data.site_pos_w[:, sid, 0].mean(dim=1) - env.scene.env_origins[:, 0]
+  pel_x = robot.data.root_link_pos_w[:, 0] - env.scene.env_origins[:, 0]
+  assert torch.allclose(mid_x - pel_x, torch.full_like(mid_x, params["offset"]), atol=1e-3)
+  # Zero command: feet at their reset position give the maximum reward.
+  assert torch.allclose(mdp.stance_position_tracking(env, **params), torch.ones(4), atol=1e-3)
+  env.close()
+
+
+def test_stance_target_is_fixed_while_feet_move():
+  cfg = load_env_cfg(STANCE_TASK)
+  cfg.scene.num_envs = 4
+  env = ManagerBasedRlEnv(cfg=cfg, device="cpu")
+  env.reset()
+  term = env.command_manager.get_term("twist")
+  robot = env.scene["robot"]
+  params = env.reward_manager.get_term_cfg("stance_position").params
+  sid = params["asset_cfg"].site_ids
+  target0 = term.target_pos_w.clone()
+  alive = torch.ones(4, dtype=torch.bool)
+  for _ in range(40):
+    _, _, terminated, truncated, _ = env.step(0.3 * (2 * torch.rand(4, NUM_JOINTS) - 1))
+    alive &= ~(terminated | truncated)
+    assert torch.equal(term.target_pos_w[alive], target0[alive])
+    mid = robot.data.site_pos_w[:, sid, :2].mean(dim=1)
+    err = (term.target_pos_w - mid) @ term.direction + params["offset"]
+    assert torch.allclose(mdp.stance_position_tracking(env, **params), torch.exp(-(err / params["std"]) ** 2))
+  # Deterministic displacement of the feet: teleport the robot 5 cm along the command axis.
+  target1 = term.target_pos_w.clone()
+  r0 = mdp.stance_position_tracking(env, **params)
+  mid0 = robot.data.site_pos_w[:, sid, :2].mean(dim=1)
+  pose = torch.cat([robot.data.root_link_pos_w, robot.data.root_link_quat_w], dim=-1).clone()
+  pose[:, :2] += 0.05 * term.direction
+  robot.write_root_link_pose_to_sim(pose)
+  env.sim.forward()
+  mid1 = robot.data.site_pos_w[:, sid, :2].mean(dim=1)
+  assert torch.allclose((mid1 - mid0) @ term.direction, torch.full((4,), 0.05), atol=1e-4)
+  assert torch.equal(term.target_pos_w, target1)  # the target does not follow the feet
+  err = (target1 - mid1) @ term.direction + params["offset"]
+  r1 = mdp.stance_position_tracking(env, **params)
+  assert torch.allclose(r1, torch.exp(-(err / params["std"]) ** 2)) and not torch.allclose(r1, r0)
+  env.close()
+
+
+def test_stancetrack_differs_from_postrack_only_by_stance_reward():
+  from dataclasses import fields as dc_fields
+
+  def same(x, y):  # repr without per-call function addresses
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  p = load_env_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack")
+  s = load_env_cfg(STANCE_TASK)
+  for f in dc_fields(p):
+    if f.name != "rewards":
+      assert same(getattr(p, f.name), getattr(s, f.name)), f.name
+  assert set(s.rewards) - set(p.rewards) == {"stance_position"} and set(p.rewards) <= set(s.rewards)
+  for name in p.rewards:
+    assert same(p.rewards[name], s.rewards[name]), name
+  t = s.rewards["stance_position"]
+  assert t.func is mdp.stance_position_tracking and t.weight == 1.0
+  assert (t.params["std"], t.params["offset"], t.params["asset_cfg"].site_names) == (0.06, 0.014, ("left_foot", "right_foot"))
+  assert same(load_rl_cfg("Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack"), load_rl_cfg(STANCE_TASK))
+
+
+def test_earlier_tasks_have_no_stance_reward():
+  for task in [t for t in list_tasks() if "Contact" in t and not t.endswith("StanceTrack")]:
+    assert "stance_position" not in load_env_cfg(task).rewards, task
