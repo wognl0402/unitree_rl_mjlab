@@ -10,3 +10,10 @@ def unitree_g1_stable_contact_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
   cfg = unitree_g1_ppo_runner_cfg()
   cfg.experiment_name = "g1_stable_contact_move"
   return cfg
+
+
+def unitree_g1_stable_contact_actor_cmd_gain_ppo_runner_cfg(actor_class: str) -> RslRlOnPolicyRunnerCfg:
+  """Same as above except the actor model class (actor-only command gain, see actor_command_gain.py)."""
+  cfg = unitree_g1_stable_contact_ppo_runner_cfg()
+  cfg.actor.class_name = actor_class
+  return cfg

@@ -3,6 +3,7 @@
 Run: python -m pytest tests/test_stable_contact_move.py -q
 """
 
+import copy
 import math
 import re
 from types import SimpleNamespace
@@ -876,5 +877,104 @@ def test_foottrack_differs_from_stancetrack_only_by_foot_reward():
 
 
 def test_earlier_tasks_have_no_foot_reward():
-  for task in [t for t in list_tasks() if "Contact" in t and not t.endswith("FootTrack")]:
+  for task in [t for t in list_tasks() if "Contact" in t and "FootTrack" not in t]:
     assert "foot_position" not in load_env_cfg(task).rewards, task
+
+
+ACTOR_CMD_TASK = FOOT_TASK + "-ActorCmd1p5"
+
+
+def _actor_pair(gain_cls, n=8, dim=104, seed=0):
+  from rsl_rl.models.mlp_model import MLPModel
+  from tensordict import TensorDict
+
+  g = torch.Generator().manual_seed(seed)
+  obs = TensorDict({"actor": torch.randn(n, dim, generator=g) * 0.1}, batch_size=[n])
+  kw = dict(obs_groups={"actor": ["actor"]}, obs_set="actor", output_dim=29, hidden_dims=(32, 16), activation="elu",
+            obs_normalization=True, distribution_cfg={"class_name": "GaussianDistribution", "init_std": 1.0, "std_type": "scalar"})
+  base = MLPModel(obs, **copy.deepcopy(kw)); amp = gain_cls(obs, **copy.deepcopy(kw))
+  amp.load_state_dict(base.state_dict())
+  return base, amp, obs
+
+
+def test_amplify_command_scales_xy_clips_norm_and_keeps_other_dims():
+  from src.tasks.stable_contact.actor_command_gain import COMMAND_XY, MAX_SPEED, amplify_command
+
+  assert COMMAND_XY == (6, 8) and MAX_SPEED == 0.2
+  x = torch.randn(5, 104)
+  x[:, 6:8] = torch.tensor([[0.05, 0.0], [0.0, -0.04], [0.03, 0.04], [0.15, 0.0], [-0.12, 0.09]])
+  before = x.clone()
+  y = amplify_command(x, 1.5)
+  assert torch.equal(x, before)  # input not mutated
+  assert torch.allclose(y[:3, 6:8], 1.5 * x[:3, 6:8])
+  assert torch.allclose(torch.linalg.norm(y[3:, 6:8], dim=-1), torch.full((2,), 0.2))  # clipped to max_speed, direction kept
+  assert torch.allclose(y[3:, 6:8] / torch.linalg.norm(y[3:, 6:8], dim=-1, keepdim=True), x[3:, 6:8] / torch.linalg.norm(x[3:, 6:8], dim=-1, keepdim=True))
+  keep = [i for i in range(104) if i not in (6, 7)]
+  assert torch.equal(y[:, keep], x[:, keep])  # wz (dim 8), phase and everything else untouched
+  assert torch.allclose(amplify_command(x, 1.0)[:3], x[:3])
+
+
+def test_actor_cmd_gain_normalizer_tracks_real_obs_and_latent_uses_amplified_command():
+  from src.tasks.stable_contact.actor_command_gain import ActorCommandGain1p5, amplify_command
+
+  base, amp, obs = _actor_pair(ActorCommandGain1p5)
+  base.train(); amp.train()
+  for _ in range(3):
+    base.update_normalization(obs); amp.update_normalization(obs)
+  # identical statistics: the normalizer learns from the real (unamplified) observation
+  for k in ("_mean", "_var", "_std", "count"):
+    assert torch.equal(getattr(base.obs_normalizer, k), getattr(amp.obs_normalizer, k)), k
+  with torch.no_grad():
+    lat = amp.get_latent(obs)
+    assert torch.allclose(lat, base.obs_normalizer(amplify_command(obs["actor"], 1.5)))
+    d = lat - base.get_latent(obs)
+    assert torch.count_nonzero(d[:, [i for i in range(104) if i not in (6, 7)]]) == 0
+    # with the same statistics the extra input is exactly (gain - 1) * v / (std + eps) in the unclipped range
+    v = obs["actor"][:, 6:8]; s = base.obs_normalizer._std[0, 6:8] + base.obs_normalizer.eps
+    free = torch.linalg.norm(1.5 * v, dim=-1) < 0.2
+    assert free.sum() >= 2 and (~free).sum() >= 1
+    assert torch.allclose(d[free, 6:8], 0.5 * v[free] / s, atol=1e-5)
+
+
+def test_actor_cmd_gain_export_applies_same_transform():
+  from src.tasks.stable_contact.actor_command_gain import ActorCommandGain1p5
+
+  _, amp, obs = _actor_pair(ActorCommandGain1p5)
+  amp.train(); amp.update_normalization(obs); amp.eval()
+  with torch.no_grad():
+    ref = amp(obs)
+    assert torch.allclose(amp.as_onnx(verbose=False)(obs["actor"]), ref, atol=1e-6)
+    assert torch.allclose(amp.as_jit()(obs["actor"]), ref, atol=1e-6)
+    assert amp.as_onnx(verbose=False).get_dummy_inputs()[0].shape == (1, 104)
+
+
+def test_actor_command_slice_matches_movement_actor_observation_layout():
+  cfg = load_env_cfg(ACTOR_CMD_TASK); cfg.scene.num_envs = 1
+  e = ManagerBasedRlEnv(cfg=cfg, device="cpu")
+  names = e.observation_manager.active_terms["actor"]; dims = e.observation_manager.group_obs_term_dim["actor"]
+  i = names.index("command")
+  assert sum(int(np.prod(d)) for d in dims[:i]) == 6 and int(np.prod(dims[i])) == 3
+  assert sum(int(np.prod(d)) for d in dims) == 104
+  assert e.command_manager.get_term("twist").cfg.max_speed == 0.2
+  e.close()
+
+
+def test_actorcmd1p5_differs_from_foottrack_only_in_actor_class():
+  from dataclasses import fields as dc_fields
+
+  def same(x, y):
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  f, a = load_env_cfg(FOOT_TASK), load_env_cfg(ACTOR_CMD_TASK)
+  for fld in dc_fields(f):
+    assert same(getattr(f, fld.name), getattr(a, fld.name)), fld.name
+  rf, ra = load_rl_cfg(FOOT_TASK), load_rl_cfg(ACTOR_CMD_TASK)
+  assert ra.actor.class_name == "src.tasks.stable_contact.actor_command_gain:ActorCommandGain1p5"
+  assert rf.actor.class_name == "MLPModel" and ra.critic.class_name == "MLPModel"
+  ra.actor.class_name = rf.actor.class_name
+  assert same(rf, ra)
+
+
+def test_earlier_tasks_use_plain_actor():
+  for task in [t for t in list_tasks() if "Contact" in t and "ActorCmd" not in t]:
+    assert load_rl_cfg(task).actor.class_name == "MLPModel", task

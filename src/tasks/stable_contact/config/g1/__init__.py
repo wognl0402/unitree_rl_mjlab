@@ -7,7 +7,10 @@ from src.tasks.stable_contact.stable_contact_move_env_cfg import (
   make_stable_contact_move_env_cfg,
 )
 
-from .rl_cfg import unitree_g1_stable_contact_ppo_runner_cfg
+from .rl_cfg import (
+  unitree_g1_stable_contact_actor_cmd_gain_ppo_runner_cfg,
+  unitree_g1_stable_contact_ppo_runner_cfg,
+)
 
 # EXPERIMENTAL: fixed-point contact baseline (see stable_contact_move_env_cfg.py).
 register_mjlab_task(
@@ -191,5 +194,18 @@ register_mjlab_task(
   env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_FOOT),
   play_env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_FOOT, play=True),
   rl_cfg=unitree_g1_stable_contact_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+# EXPERIMENTAL A/B variant of FootTrack: identical environment (real command, rewards, gates,
+# critic); only the actor sees its translational (vx, vy) command input as clip_norm(1.5 * v, 0.2).
+# The actor normalizer keeps updating on the real command, so the gain is not absorbed.
+register_mjlab_task(
+  task_id="Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack-FootTrack-ActorCmd1p5",
+  env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_FOOT),
+  play_env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_FOOT, play=True),
+  rl_cfg=unitree_g1_stable_contact_actor_cmd_gain_ppo_runner_cfg(
+    "src.tasks.stable_contact.actor_command_gain:ActorCommandGain1p5"
+  ),
   runner_cls=VelocityOnPolicyRunner,
 )
