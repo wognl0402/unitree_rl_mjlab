@@ -23,6 +23,7 @@ from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.metrics_manager import MetricsTermCfg
+from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
@@ -116,6 +117,12 @@ class StableContactMoveCfg:
   """m, kernel width of the per-foot displacement reward."""
   foot_offsets: tuple[float, float] = (0.014, 0.014)
   """m, (left, right) foot-site position along the command axis minus the pelvis at reset."""
+
+  actor_command_stance_alpha: float = 0.0
+  """EXPERIMENTAL: actor-only translational command reference. 0 = the real (pelvis-referenced)
+  command. > 0: the actor group's command term is mdp.stance_blended_command, which adds alpha
+  times the (stance - pelvis) error difference along the command axis. The command manager,
+  rewards, gates and critic keep the real command."""
 
   gravity_hold_joints: tuple[str, ...] = ()
   """Joint regexes whose zero-action position target cancels gravity at the default
@@ -251,6 +258,13 @@ def make_stable_contact_move_env_cfg(
       func=mdp.foot_position_tracking, weight=task.foot_position_weight,
       params={"command_name": "twist", "std": task.foot_position_std, "offsets": task.foot_offsets,
               "asset_cfg": SceneEntityCfg("robot", site_names=("left_foot", "right_foot"), preserve_order=True)},
+    )
+
+  if task.actor_command_stance_alpha:
+    cfg.observations["actor"].terms["command"] = ObservationTermCfg(
+      func=mdp.stance_blended_command,
+      params={"command_name": "twist", "alpha": task.actor_command_stance_alpha, "stance_offset": task.stance_offset,
+              "asset_cfg": SceneEntityCfg("robot", site_names=("left_foot", "right_foot"), preserve_order=True), "project": True},
     )
 
   # Terminations (time_out and fell_over are inherited).

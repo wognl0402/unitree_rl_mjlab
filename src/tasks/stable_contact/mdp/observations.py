@@ -37,6 +37,7 @@ __all__ = [
   "hand_contact_force",
   "hand_slip_speed",
   "hand_contact_time",
+  "stance_blended_command",
 ]
 
 
@@ -116,3 +117,42 @@ def hand_contact_time(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
     f"'{sensor_name}' needs track_air_time=True."
   )
   return sensor.data.current_contact_time[:, :1]
+
+
+def stance_blended_command(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  alpha: float,
+  stance_offset: float,
+  asset_cfg: SceneEntityCfg,
+  project: bool = True,
+) -> torch.Tensor:
+  """[B, 3] (vx, vy, wz) twist whose translational part uses a pelvis/stance blended error. COMMAND-LIKE.
+
+  e_p = pelvis target - pelvis; e_s = stance target - feet midpoint, with the stance target
+  = pelvis target + stance_offset * direction. project=True blends only along the command
+  axis: e = e_p + alpha * ((e_s - e_p) . u) u, so the perpendicular error stays the pelvis
+  error. The mapping is the command term's own (position_gain, max_speed clip, heading
+  rotation); wz is the real command's. alpha = 0 returns the real command. Intended for the
+  actor group only: the command manager, rewards, gates and critic keep the real command.
+  """
+  term = env.command_manager.get_term(command_name)
+  cmd = term.command
+  if alpha == 0.0:
+    return cmd.clone()
+  robot: Entity = env.scene[asset_cfg.name]
+  u = term.direction
+  e_p = term.target_pos_w - robot.data.root_link_pos_w[:, :2]
+  stance = robot.data.site_pos_w[:, asset_cfg.site_ids, :2].mean(dim=1)
+  e_s = term.target_pos_w + stance_offset * u - stance
+  if project:
+    e = e_p + alpha * ((e_s - e_p) @ u)[:, None] * u[None]
+  else:
+    e = (1.0 - alpha) * e_p + alpha * e_s
+  v = term.cfg.position_gain * e
+  speed = torch.linalg.norm(v, dim=-1, keepdim=True)
+  v = v * torch.clamp(term.cfg.max_speed / speed.clamp(min=1e-6), max=1.0)
+  yaw = robot.data.heading_w
+  cos, sin = torch.cos(yaw), torch.sin(yaw)
+  vb = torch.stack([cos * v[:, 0] + sin * v[:, 1], -sin * v[:, 0] + cos * v[:, 1]], dim=-1)
+  return torch.cat([vb, cmd[:, 2:3]], dim=-1)

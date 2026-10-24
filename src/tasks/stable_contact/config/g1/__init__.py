@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from mjlab.tasks.registry import register_mjlab_task
 from src.tasks.velocity.rl import VelocityOnPolicyRunner
 
@@ -204,6 +206,20 @@ register_mjlab_task(
   task_id="Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack-FootTrack-ActorCmd1p5",
   env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_FOOT),
   play_env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_FOOT, play=True),
+  rl_cfg=unitree_g1_stable_contact_actor_cmd_gain_ppo_runner_cfg(
+    "src.tasks.stable_contact.actor_command_gain:ActorCommandGain1p5"
+  ),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+# EXPERIMENTAL A/B variant of FootTrack-ActorCmd1p5: identical except that the ACTOR's translational
+# command uses a pelvis/stance blended error along the command axis (alpha 0.25; perpendicular error
+# stays the pelvis error). Command manager, rewards, gates and critic keep the real command.
+_GRAV_HOLD_FORCE_BAND_MOVE08_FOOT_STANCEREF = replace(_GRAV_HOLD_FORCE_BAND_MOVE08_FOOT, actor_command_stance_alpha=0.25)
+register_mjlab_task(
+  task_id="Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack-FootTrack-ActorCmd1p5-StanceRefP025",
+  env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_FOOT_STANCEREF),
+  play_env_cfg=make_stable_contact_move_env_cfg(_GRAV_HOLD_FORCE_BAND_MOVE08_FOOT_STANCEREF, play=True),
   rl_cfg=unitree_g1_stable_contact_actor_cmd_gain_ppo_runner_cfg(
     "src.tasks.stable_contact.actor_command_gain:ActorCommandGain1p5"
   ),

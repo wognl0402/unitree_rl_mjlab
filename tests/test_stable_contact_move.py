@@ -978,3 +978,74 @@ def test_actorcmd1p5_differs_from_foottrack_only_in_actor_class():
 def test_earlier_tasks_use_plain_actor():
   for task in [t for t in list_tasks() if "Contact" in t and "ActorCmd" not in t]:
     assert load_rl_cfg(task).actor.class_name == "MLPModel", task
+
+
+STANCEREF_TASK = ACTOR_CMD_TASK + "-StanceRefP025"
+
+
+def _stanceref_env(alpha_steps=20):
+  cfg = load_env_cfg(STANCEREF_TASK); cfg.scene.num_envs = 4; cfg.curriculum = {}
+  e = ManagerBasedRlEnv(cfg=cfg, device="cpu"); e.reset()
+  g = torch.Generator().manual_seed(0)
+  for _ in range(alpha_steps):
+    e.step(torch.randn(4, NUM_JOINTS, generator=g) * 0.3)
+  return e
+
+
+def test_stance_blended_command_alpha0_is_real_command_and_projection_keeps_perpendicular():
+  e = _stanceref_env()
+  feet = SceneEntityCfg("robot", site_names=("left_foot", "right_foot"), preserve_order=True); feet.resolve(e.scene)
+  real = e.command_manager.get_command("twist")
+  out0 = mdp.stance_blended_command(e, "twist", 0.0, 0.014, feet)
+  assert torch.equal(out0, real)
+  term = e.command_manager.get_term("twist"); r = e.scene["robot"]; u = term.direction; perp = torch.stack([-u[1], u[0]])
+  # small target offsets so neither command saturates; then compare world-frame velocities
+  term.target_pos_w[:] = r.data.root_link_pos_w[:, :2] + torch.tensor([0.01, 0.015])
+  yaw = r.data.heading_w; cs, sn = torch.cos(yaw), torch.sin(yaw)
+  def world(vb): return torch.stack([cs * vb[:, 0] - sn * vb[:, 1], sn * vb[:, 0] + cs * vb[:, 1]], -1)
+  base = mdp.stance_blended_command(e, "twist", 0.0, 0.014, feet); term._update_command(); base = e.command_manager.get_command("twist").clone()
+  out = mdp.stance_blended_command(e, "twist", 0.25, 0.014, feet)
+  assert torch.allclose(world(out[:, :2]) @ perp, world(base[:, :2]) @ perp, atol=1e-6)  # perpendicular unchanged
+  assert torch.equal(out[:, 2], base[:, 2])  # wz is the real command's
+  stance = r.data.site_pos_w[:, feet.site_ids, :2].mean(1)
+  e_p = term.target_pos_w - r.data.root_link_pos_w[:, :2]; e_s = term.target_pos_w + 0.014 * u - stance
+  expect_par = term.cfg.position_gain * ((e_p @ u) + 0.25 * ((e_s - e_p) @ u))
+  assert torch.allclose(world(out[:, :2]) @ u, expect_par, atol=1e-6)
+  e.close()
+
+
+def test_stanceref_actor_sees_blend_critic_and_gates_see_real_command():
+  e = _stanceref_env()
+  ob = e.observation_manager.compute(); real = e.command_manager.get_command("twist")
+  names = e.observation_manager.active_terms["actor"]; i = names.index("command")
+  assert names == e.observation_manager.active_terms["critic"][:len(names) - 2] or "command" in e.observation_manager.active_terms["critic"]
+  assert torch.allclose(ob["critic"][:, 6:9], real)
+  assert not torch.allclose(ob["actor"][:, 6:8], real[:, :2])
+  assert torch.allclose(ob["actor"][:, 8], real[:, 2])
+  assert torch.equal(ob["actor"][:, 9:11], ob["critic"][:, 9:11])  # phase gate uses the real command
+  assert sum(int(np.prod(d)) for d in e.observation_manager.group_obs_term_dim["actor"]) == 104
+  e.close()
+
+
+def test_stanceref_differs_from_actorcmd1p5_only_in_actor_command_term():
+  from dataclasses import fields as dc_fields
+
+  def same(x, y):
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  a, s = load_env_cfg(ACTOR_CMD_TASK), load_env_cfg(STANCEREF_TASK)
+  for fld in dc_fields(a):
+    if fld.name != "observations":
+      assert same(getattr(a, fld.name), getattr(s, fld.name)), fld.name
+  assert same(a.observations["critic"], s.observations["critic"])
+  for name in a.observations["actor"].terms:
+    if name != "command":
+      assert same(a.observations["actor"].terms[name], s.observations["actor"].terms[name]), name
+  t = s.observations["actor"].terms["command"]
+  assert t.func is mdp.stance_blended_command and t.params["alpha"] == 0.25 and t.params["project"] is True and t.params["stance_offset"] == 0.014
+  assert same(load_rl_cfg(ACTOR_CMD_TASK), load_rl_cfg(STANCEREF_TASK))
+
+
+def test_other_tasks_keep_real_actor_command():
+  for task in [t for t in list_tasks() if "Contact" in t and "StanceRef" not in t]:
+    assert load_env_cfg(task).observations["actor"].terms["command"].func is not mdp.stance_blended_command, task
