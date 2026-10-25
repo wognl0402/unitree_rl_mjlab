@@ -225,3 +225,17 @@ register_mjlab_task(
   ),
   runner_cls=VelocityOnPolicyRunner,
 )
+
+# EXPERIMENTAL low-std fine-tune arms (warm-started from an existing ActorCmd1p5 checkpoint with a
+# reduced std): identical to ActorCmd1p5 / ActorCmd1p5-StanceRefP025 except that the actor's
+# Gaussian std is held fixed (not trained).
+for _suffix, _cfg in (("", _GRAV_HOLD_FORCE_BAND_MOVE08_FOOT), ("-StanceRefP025", _GRAV_HOLD_FORCE_BAND_MOVE08_FOOT_STANCEREF)):
+  register_mjlab_task(
+    task_id=f"Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack-FootTrack-ActorCmd1p5{_suffix}-FixedStd",
+    env_cfg=make_stable_contact_move_env_cfg(_cfg),
+    play_env_cfg=make_stable_contact_move_env_cfg(_cfg, play=True),
+    rl_cfg=unitree_g1_stable_contact_actor_cmd_gain_ppo_runner_cfg(
+      "src.tasks.stable_contact.actor_command_gain:ActorCommandGain1p5FixedStd"
+    ),
+    runner_cls=VelocityOnPolicyRunner,
+  )

@@ -176,7 +176,9 @@ def test_baseline_velocity_task_untouched():
     "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack",
     "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack-FootTrack",
     "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack-FootTrack-ActorCmd1p5",
+    "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack-FootTrack-ActorCmd1p5-FixedStd",
     "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack-FootTrack-ActorCmd1p5-StanceRefP025",
+    "Unitree-G1-StableContactMove-GravHold-ForceBand-Move08-PosTrack-StanceTrack-FootTrack-ActorCmd1p5-StanceRefP025-FixedStd",
     "Unitree-G1-StableContactMove-GravHold-Slip1"]
   cfg = load_env_cfg("Unitree-G1-Flat")
   assert "wall" not in cfg.scene.entities

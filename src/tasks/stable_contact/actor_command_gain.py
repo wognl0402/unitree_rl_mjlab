@@ -67,3 +67,14 @@ class ActorCommandGainMLPModel(MLPModel):
 
 class ActorCommandGain1p5(ActorCommandGainMLPModel):
   command_gain = 1.5
+
+
+class ActorCommandGain1p5FixedStd(ActorCommandGain1p5):
+  """ActorCommandGain1p5 with the Gaussian std held fixed at its loaded value (requires_grad False,
+  so the optimizer never updates it). For short low-std fine-tunes from an existing checkpoint."""
+
+  def __init__(self, *args, **kwargs) -> None:
+    super().__init__(*args, **kwargs)
+    for name, p in self.distribution.named_parameters():
+      if "std" in name:
+        p.requires_grad_(False)

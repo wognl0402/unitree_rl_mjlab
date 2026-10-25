@@ -1049,3 +1049,36 @@ def test_stanceref_differs_from_actorcmd1p5_only_in_actor_command_term():
 def test_other_tasks_keep_real_actor_command():
   for task in [t for t in list_tasks() if "Contact" in t and "StanceRef" not in t]:
     assert load_env_cfg(task).observations["actor"].terms["command"].func is not mdp.stance_blended_command, task
+
+
+def test_fixed_std_actor_keeps_std_through_optimizer_steps():
+  from src.tasks.stable_contact.actor_command_gain import ActorCommandGain1p5FixedStd
+
+  _, amp, obs = _actor_pair(ActorCommandGain1p5FixedStd)
+  std0 = amp.distribution.std_param.detach().clone() * 0.25
+  with torch.no_grad():
+    amp.distribution.std_param.copy_(std0)
+  assert not amp.distribution.std_param.requires_grad
+  opt = torch.optim.Adam(amp.parameters(), lr=1e-2)
+  w0 = amp.mlp[0].weight.detach().clone()
+  for _ in range(3):
+    a = amp(obs, stochastic_output=True)
+    loss = -amp.get_output_log_prob(a).mean() - amp.output_entropy.mean() + amp(obs).pow(2).mean()
+    opt.zero_grad(); loss.backward(); opt.step()
+  assert torch.equal(amp.distribution.std_param, std0)  # std unchanged
+  assert not torch.equal(amp.mlp[0].weight, w0)  # mean network still trains
+  with torch.no_grad():
+    amp(obs, stochastic_output=True); assert torch.allclose(amp.output_std[0], std0)
+
+
+def test_fixed_std_tasks_differ_from_parents_only_in_actor_class():
+  def same(x, y):
+    return re.sub(r" at 0x[0-9a-f]+", "", repr(x)) == re.sub(r" at 0x[0-9a-f]+", "", repr(y))
+
+  for parent in (ACTOR_CMD_TASK, STANCEREF_TASK):
+    child = parent + "-FixedStd"
+    assert same(load_env_cfg(parent), load_env_cfg(child))
+    rp, rc = load_rl_cfg(parent), load_rl_cfg(child)
+    assert rc.actor.class_name == "src.tasks.stable_contact.actor_command_gain:ActorCommandGain1p5FixedStd"
+    rc.actor.class_name = rp.actor.class_name
+    assert same(rp, rc)
