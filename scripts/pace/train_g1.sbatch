@@ -15,8 +15,6 @@
 # Arguments: NUM_ENVS ITERATIONS RUN_NAME [additional train arguments...]
 set -eo pipefail
 : "${SLURM_SUBMIT_DIR:?Submit this script with sbatch from the repository root.}"
-source "$SLURM_SUBMIT_DIR/scripts/pace/env.sh" --activate
-set -u
 : "${SLURM_JOB_ID:?Submit this script with sbatch.}"
 
 num_envs="${1:-1024}"
@@ -32,15 +30,15 @@ if [[ ! "$run_name" =~ ^[A-Za-z0-9_.-]+$ ]]; then
   exit 2
 fi
 
+source "$SLURM_SUBMIT_DIR/env.sh" --check
+set -u
 cd "$MJLAB_REPO"
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-4}"
 export MKL_NUM_THREADS="$OMP_NUM_THREADS"
 printf 'Job %s | Host %s | Envs %s | Iterations %s\n' \
   "$SLURM_JOB_ID" "$(hostname -s)" "$num_envs" "$iterations"
 git rev-parse HEAD
-uv run --frozen --no-sync python scripts/pace/check_environment.py
-
-exec srun uv run --frozen --no-sync train \
+exec srun uv run train \
   Mjlab-Velocity-Flat-Unitree-G1 \
   --env.scene.num-envs "$num_envs" \
   --agent.max-iterations "$iterations" \

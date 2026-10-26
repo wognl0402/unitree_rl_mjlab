@@ -1,11 +1,11 @@
-# Learn RL with mjlab on PACE-ICE
+# RL basics and mjlab source map
 
 This checkout contains the framework, robot tasks, and the MDP functions they use.
 Work from one repository throughout the tutorial.
 
-1. [Set up Conda and PACE-ICE](SETUP_CONDA_ICE.md).
-2. [Submit and monitor a GPU job](JOB_SUBMISSION.md).
-3. [Find MDP functions and add an environment](ADDING_ENVIRONMENTS.md).
+Follow the [main README](../../README.md) for the complete PACE setup and job
+submission sequence. This page explains the ideas behind those commands.
+Then use the [environment guide](ADDING_ENVIRONMENTS.md) to change a task.
 
 ## What is reinforcement learning?
 
@@ -51,17 +51,3 @@ Two iterations are enough for a software smoke check, not a walking policy.
 The [upstream docs](https://mujocolab.github.io/mjlab/) explain the general API.
 This checkout also contains that documentation under `docs/source/` and the
 [cartpole tutorial](../source/tutorials/cartpole.rst).
-
-## Validation status
-
-Checked on 2026-10-26 against the imported main revision:
-
-- The locked source install, formatting, linting, and both type checkers passed.
-- Thirteen upstream task/configuration tests passed on CPU. The documented
-  environment exercise registered its training and play configurations.
-- Mocked batch execution checked activation, arguments, GPU visibility, resume
-  forwarding, and error propagation. PACE accepted the resource request with
-  `sbatch --test-only` and no explicit scheduling-class argument.
-
-These checks did not run GPU training or a fresh PACE Conda installation.
-Complete the two-iteration batch smoke job before starting a longer run.

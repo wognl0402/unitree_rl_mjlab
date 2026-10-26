@@ -8,8 +8,10 @@ Upcoming version (not yet released)
 Added
 ^^^^^
 
-- This teaching branch includes PACE-ICE setup, batch job submission, and a guide
-  to the local framework and MDP source code under ``docs/pace/``.
+- This teaching branch has a self-contained root ``env.sh`` that creates and
+  activates the PACE environment, with the complete setup sequence in the README.
+- This teaching branch includes RL concepts, an environment-registration guide,
+  and a map of the local framework and MDP source code under ``docs/pace/``.
 - Added ``GridPatternCfg.offset`` to shift the ray grid in frame-local XY.
 - ``GridPatternCfg.resolution`` accepts a per-axis ``(x, y)`` tuple.
 - Added a ``cu126`` extra (``uv sync --extra cu126``) that installs torch built for

@@ -10,7 +10,7 @@ require a second mjlab source checkout.
 | Requested starting commit | `1c4e48c1721d2388793ebd24e783c51858214ead` |
 | Imported source | [mujocolab/mjlab](https://github.com/mujocolab/mjlab) `main` |
 | Imported commit | [`8bb2bc9e187797689ec82c78c35019afd2fd0376`](https://github.com/mujocolab/mjlab/commit/8bb2bc9e187797689ec82c78c35019afd2fd0376) |
-| Local additions | `scripts/pace/`, `docs/pace/`, this page, README links, and the changelog entry |
+| Local additions | Root `env.sh`, `scripts/pace/`, `docs/pace/`, this page, the teaching README, setup tests, and changelog entries |
 
 The import commit has the requested starting commit as its first parent and the
 upstream mjlab commit as its second parent. The original Unitree project files
@@ -50,6 +50,7 @@ If `mjlab` already exists, inspect `git remote -v` and reuse it. The old
 `upstream` remote may point at Unitree; do not use it for framework updates.
 The preserved merge history lets Git identify changes after the imported mjlab
 revision. Review lockfile and API changes, update this page's imported revision,
-run the development checks, and repeat the PACE GPU smoke job before publishing.
+run the development checks, and repeat the README's PACE GPU smoke job before
+publishing.
 
 No default branch or existing branch has been rewritten.

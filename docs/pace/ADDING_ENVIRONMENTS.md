@@ -8,6 +8,9 @@ velocity tracking rewards live in
 An MDP package can re-export functions from another package: follow the import
 when a definition is not in the first file you open.
 
+Complete the [README setup](../../README.md) and run `source env.sh` in this
+checkout before using the commands below.
+
 ## Start with an existing task
 
 For a new robot-learning task, define:
@@ -77,16 +80,16 @@ The inherited rewards still teach velocity tracking and balance.
 registers the ID. First check discovery and configuration without simulation:
 
 ```bash
-uv run --frozen --no-sync list-envs --keyword Slow
-uv run --frozen --no-sync train Mjlab-Velocity-Slow-Unitree-G1 --help
+uv run list-envs --keyword Slow
+uv run train Mjlab-Velocity-Slow-Unitree-G1 --help
 ```
 
 Then, **inside a GPU allocation**, check zero actions and a small training run:
 
 ```bash
-uv run --frozen --no-sync play Mjlab-Velocity-Slow-Unitree-G1 \
+uv run play Mjlab-Velocity-Slow-Unitree-G1 \
   --agent zero --num-envs 1 --viewer viser
-uv run --frozen --no-sync train Mjlab-Velocity-Slow-Unitree-G1 \
+uv run train Mjlab-Velocity-Slow-Unitree-G1 \
   --env.scene.num-envs 32 --agent.max-iterations 2 \
   --agent.logger tensorboard --agent.run-name slow_walk_smoke
 ```
