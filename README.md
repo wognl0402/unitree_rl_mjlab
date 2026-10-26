@@ -1,242 +1,148 @@
-# Unitree RL Mjlab
+![Project banner](https://raw.githubusercontent.com/mujocolab/mjlab/main/docs/source/_static/mjlab-banner.jpg)
 
+# mjlab
 
-## ✳️ Overview
-Unitree RL Mjlab is a reinforcement learning project built upon the
-[mjlab](https://github.com/mujocolab/mjlab.git), using MuJoCo as its 
-physics simulation backend, currently supporting Unitree Go2, A2, As2, G1, R1, H1_2 and H2.
+This branch contains the complete [upstream mjlab](https://github.com/mujocolab/mjlab)
+framework, with [PACE-ICE setup and job submission](docs/pace/README.md).
+Unitree G1 and Go1 are included as upstream tasks. Start with the
+[source and branch notes](docs/UPSTREAM.md) for the imported revision and legacy
+Unitree repository history.
 
-Mjlab combines [Isaac Lab](https://github.com/isaac-sim/IsaacLab)'s proven API
-with best-in-class [MuJoCo](https://github.com/google-deepmind/mujoco_warp)
-physics to provide lightweight, modular abstractions for RL robotics research
-and sim-to-real deployment.
+[![GitHub Actions](https://img.shields.io/github/actions/workflow/status/mujocolab/mjlab/ci.yml?branch=main)](https://github.com/mujocolab/mjlab/actions/workflows/ci.yml?query=branch%3Amain)
+[![Documentation](https://github.com/mujocolab/mjlab/actions/workflows/docs.yml/badge.svg)](https://mujocolab.github.io/mjlab/)
+[![License](https://img.shields.io/github/license/mujocolab/mjlab)](https://github.com/mujocolab/mjlab/blob/main/LICENSE)
+[![MuJoCo Warp](https://img.shields.io/badge/MuJoCo_Warp-3.16.0-blue)](https://github.com/google-deepmind/mujoco_warp/releases/tag/v3.16.0)
+[![Nightly Benchmarks](https://img.shields.io/badge/Nightly-Benchmarks-blue)](https://mujocolab.github.io/mjlab/nightly/)
+[![PyPI](https://img.shields.io/pypi/v/mjlab)](https://pypi.org/project/mjlab/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/mjlab?color=blue)](https://pypistats.org/packages/mjlab)
 
-<div align="center">
+mjlab combines [Isaac Lab](https://github.com/isaac-sim/IsaacLab)'s manager-based API with [MuJoCo Warp](https://github.com/google-deepmind/mujoco_warp), a GPU-accelerated version of [MuJoCo](https://github.com/google-deepmind/mujoco).
+The framework provides composable building blocks for environment design,
+with minimal dependencies and direct access to native MuJoCo data structures.
 
-| <div align="center">  MuJoCo </div>                                                                                                                                           | <div align="center"> Physical </div>                                                                                                                                               |
-|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| <div style="width:250px; height:150px; overflow:hidden;"><img src="doc/gif/g1-velocity.gif" style="width:100%; height:100%; object-fit:cover; object-position:center;"></div> | <div style="width:250px; height:150px; overflow:hidden;"><img src="doc/gif/g1-velocity-real.gif" style="width:100%; height:100%; object-fit:cover; object-position:center;"></div> |
+## Getting Started
 
-</div>
+mjlab requires an NVIDIA GPU for training. macOS is supported for evaluation only.
 
+**Try it now:**
 
-## 📦 Installation and Configuration
-
-For **Georgia Tech PACE-ICE**, start with the [PACE quickstart](doc/PACE_QUICKSTART.md): pinned installation, a one-robot Viser check, and browser access over SSH.
-
-Please refer to [setup.md](doc/setup_en.md) for installation and configuration steps.
-
-This fork keeps the original Unitree history in `upstream-main`. See [upstream tracking](doc/UPSTREAM.md) for the branch layout and update commands.
-
-
-## 🔁 Process Overview
-
-The basic workflow for using reinforcement learning to achieve motion control is:
-
-`Train` → `Play` → `Sim2Real`
-
-- **Train**: The agent interacts with the MuJoCo simulation and optimizes policies through reward maximization.
-- **Play**: Replay trained policies to verify expected behavior.
-- **Sim2Real**: Deploy trained policies to physical Unitree robots for real-world execution.
-
-
-## 🛠️ Usage Guide
-
-### 1. Velocity Tracking Training
-
-Run the following command to train a velocity tracking policy:
+Run the demo (no installation needed):
 
 ```bash
-python scripts/train.py Unitree-G1-Flat --env.scene.num-envs=4096
+uvx --from mjlab --refresh demo
 ```
 
-Multi-GPU Training: Scale to multiple GPUs using --gpu-ids:
+Or try in [Google Colab](https://colab.research.google.com/github/mujocolab/mjlab/blob/main/notebooks/demo.ipynb) (no local setup required).
+
+**Install from source:**
 
 ```bash
-python scripts/train.py Unitree-G1-Flat \
-  --gpu-ids 0 1 \
-  --env.scene.num-envs=4096
+git clone --branch codex/mjlab-upstream https://github.com/wognl0402/unitree_rl_mjlab.git mjlab
+cd mjlab
+uv run demo
 ```
 
-- The first argument (e.g., Mjlab-Velocity-Flat-Unitree-G1) specifies the training task.
-Available velocity tracking tasks:
-  - Unitree-Go2-Flat
-  - Unitree-G1-Flat
-  - Unitree-G1-23Dof-Flat
-  - Unitree-H1_2-Flat
-  - Unitree-A2-Flat
-  - Unitree-R1-Flat
+For alternative installation methods (PyPI, Docker), see the [Installation Guide](https://mujocolab.github.io/mjlab/main/source/installation.html).
 
-> [!NOTE]
-> For more details, refer to the mjlab documentation:
-> [mjlab documentation](https://mujocolab.github.io/mjlab/index.html).
+## Training Examples
 
-### 2. Motion Imitation Training
+### 1. Velocity Tracking
 
-Train a Unitree G1 to mimic reference motion sequences.
-
-<div style="margin-left: 20px;">
-
-#### 2.1 Prepare Motion Files
-
-Prepare csv motion files in mjlab/motions/g1/ and convert them to npz format:
+Train a Unitree G1 humanoid to follow velocity commands on flat terrain:
 
 ```bash
-python scripts/csv_to_npz.py \
---input-file src/assets/motions/g1/dance1_subject2.csv \
---output-name dance1_subject2.npz \
---input-fps 30 \
---output-fps 50 \
---robot g1 # g1 or g1_23dof
+uv run train Mjlab-Velocity-Flat-Unitree-G1 --env.scene.num-envs 4096
 ```
 
-**npz files will be stored at:**：`src/motions/g1/...`
-
-#### 2.2 Training
-
-After generating the NPZ file, launch imitation training:
+**Multi-GPU Training:** Scale to multiple GPUs using `--gpu-ids`:
 
 ```bash
-python scripts/train.py Unitree-G1-Tracking-No-State-Estimation --motion_file=src/assets/motions/g1/dance1_subject2.npz --env.scene.num-envs=4096
+uv run train Mjlab-Velocity-Flat-Unitree-G1 \
+  --gpu-ids "[0, 1]" \
+  --env.scene.num-envs 4096
 ```
 
-Available tasks:
-  - Unitree-G1-Tracking-No-State-Estimation
-  - Unitree-G1-23Dof-Tracking-No-State-Estimation
+See the [Distributed Training guide](https://mujocolab.github.io/mjlab/main/source/training/distributed_training.html) for details.
 
-</div>
-
-> [!NOTE]
-> For detailed motion imitation instructions, refer to the BeyondMimic documentation:
-> [BeyondMimic documentation](https://github.com/HybridRobotics/whole_body_tracking/blob/main/README.md#motion-preprocessing--registry-setup).
-
-#### ⚙️  Parameter Description
-- `--env.scene`: simulation scene configuration (e.g., num_envs, dt, ground type, gravity, disturbances)
-- `--env.observations`: observation space configuration (e.g., joint state, IMU, commands, etc.)
-- `--env.rewards`: reward terms used for policy optimization
-- `--env.commands`: task commands (e.g., velocity, pose, or motion targets)
-- `--env.terminations`: termination conditions for each episode
-- `--agent.seed`: random seed for reproducibility
-- `--agent.resume`: resume from the last saved checkpoint when enabled
-- `--agent.policy`: policy network architecture configuration
-- `--agent.algorithm`: reinforcement learning algorithm configuration (PPO, hyperparameters, etc.)
-
-**Training results are stored at**：`logs/rsl_rl/<robot>_(velocity | tracking)/<date_time>/model_<iteration>.pt`
-
-### 3. Simulation Validation
-
-To visualize policy behavior in MuJoCo:
-
-Velocity tracking:
-```bash
-python scripts/play.py Unitree-G1-Flat --checkpoint_file=logs/rsl_rl/g1_velocity/2026-xx-xx_xx-xx-xx/model_xx.pt
-```
-
-Motion imitation:
-```bash
-python scripts/play.py Unitree-G1-Tracking-No-State-Estimation --motion_file=src/assets/motions/g1/dance1_subject2.npz --checkpoint_file=logs/rsl_rl/g1_tracking/2026-xx-xx_xx-xx-xx/model_xx.pt
-```
-
-**Note**：
-
-- During training, policy.onnx and policy.onnx.data are also exported for deployment onto physical robots.
-
-**Visualization**：
-
-| Go2                              | G1                             | H1_2                               | G1_mimic                          |
-|----------------------------------|--------------------------------|------------------------------------|-----------------------------------|
-| ![go2](doc/gif/go2-velocity.gif) | ![g1](doc/gif/g1-velocity.gif) | ![h1_2](doc/gif/h1_2-velocity.gif) | ![g1_mimic](doc/gif/g1-mimic.gif) |
-
-### 4. Real Deployment
-
-Before deployment, install the required communication tools:
-- [cyclonedds](https://github.com/eclipse-cyclonedds/cyclonedds.git)
-- [unitree_sdk2](https://github.com/unitreerobotics/unitree_sdk2.git)
-
-<div style="margin-left: 20px;">
-
-#### 4.1 Power On the Robot
-Start the robot in suspended state and wait until it enters `zero-torque` mode.
-
-#### 4.2 Enable Debug Mode
-While in `zero-torque` mode, press `L2 + R2` on the controller. The robot will enter `debug mode` with joint damping enabled.
-
-#### 4.3 Connect to the Robot
-Connect your PC to the robot via Ethernet. Configure the network as:
-- Address：`192.168.123.222`
-- Netmask：`255.255.255.0`
-
-Use `ifconfig` to determine the Ethernet device name for deployment.
-
-#### 4.4 Compilation
-
-Example: Unitree G1 velocity control.
-Place `policy.onnx` and `policy.onnx.data` into: `deploy/robots/g1/config/policy/velocity/v0/exported`.
-Then compile:
+Evaluate a policy while training (fetches latest checkpoint from Weights & Biases):
 
 ```bash
-cd deploy/robots/g1
-mkdir build && cd build
-cmake .. && make
+uv run play Mjlab-Velocity-Flat-Unitree-G1 --wandb-run-path your-org/mjlab/run-id
 ```
 
-#### 4.5 Deployment
+### 2. Motion Imitation
 
-## 4.5.1 Simulation Deployment
-
-Before deploying on the real robot, it is recommended to perform simulation deployment using [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco)
-to prevent abnormal behaviors on the physical robot. This framework has already integrated it.
-
-Build unitree_mujoco：
+Train a humanoid to mimic reference motions. See the [motion imitation guide](https://mujocolab.github.io/mjlab/main/source/training/motion_imitation.html) for preprocessing setup.
 
 ```bash
-cd simulate
-mkdir build && cd build
-cmake .. && make -j8
+uv run train Mjlab-Tracking-Flat-Unitree-G1 --registry-name your-org/motions/motion-name --env.scene.num-envs 4096
+uv run play Mjlab-Tracking-Flat-Unitree-G1 --wandb-run-path your-org/mjlab/run-id
 ```
 
-Launch the simulator (note that a gamepad must be connected):
+### 3. Sanity-check with Dummy Agents
+
+Use built-in agents to sanity check your MDP before training:
 
 ```bash
-./simulate/build/unitree_mujoco
+uv run play Mjlab-Your-Task-Id --agent zero  # Sends zero actions
+uv run play Mjlab-Your-Task-Id --agent random  # Sends uniform random actions
 ```
 
-You can select the corresponding robot in `simulate/config`
+When running motion-tracking tasks, add `--registry-name your-org/motions/motion-name` to the command.
 
-Launch the simulation control program:
+
+## Documentation
+
+Full documentation is available at **[mujocolab.github.io/mjlab](https://mujocolab.github.io/mjlab/)**.
+
+## Development
 
 ```bash
-cd deploy/robots/g1/build
-./g1_ctrl --network=lo
+make test          # Run all tests
+make test-fast     # Skip slow tests
+make format        # Format and lint
+make docs          # Build docs locally
 ```
 
-## 4.5.2 Real-Robot Deployment
+For development setup: `uvx pre-commit install`
 
-Launch the control program on the real robot:
+## Citation
 
-```bash
-cd deploy/robots/g1/build
-./g1_ctrl --network=enp5s0
+mjlab is used in published research and open-source robotics projects. See the [Research](https://mujocolab.github.io/mjlab/main/source/research.html) page for publications and projects, or share your own in [Show and Tell](https://github.com/mujocolab/mjlab/discussions/categories/show-and-tell).
+
+If you use mjlab in your research, please consider citing:
+
+```bibtex
+@misc{zakka2026mjlablightweightframeworkgpuaccelerated,
+  title={mjlab: A Lightweight Framework for GPU-Accelerated Robot Learning},
+  author={Kevin Zakka and Qiayuan Liao and Brent Yi and Louis Le Lay and Koushil Sreenath and Pieter Abbeel},
+  year={2026},
+  eprint={2601.22074},
+  archivePrefix={arXiv},
+  primaryClass={cs.RO},
+  url={https://arxiv.org/abs/2601.22074},
+}
 ```
 
-**Arguments**：
-- `network`: The network interface used to connect to the robot. Use `lo` for simulation deployment, and `enp5s0` for the real robot(You can check it using the `ifconfig` command) 
+## License
 
-</div>
+mjlab is licensed under the [Apache License, Version 2.0](LICENSE).
 
-**Deployment Results**：
+### Third-Party Code
 
-| Go2                                                    | G1                                                    | H1_2           | G1_mimic                                           |
-|--------------------------------------------------------|-------------------------------------------------------|----------------|----------------------------------------------------|
-| <img src="doc/gif/go2-velocity-real.gif" width="300"/> | <img src="doc/gif/g1-velocity-real.gif" width="300"/> | <img src="doc/gif/h1_2-velocity-real.gif" width="300"/> | <img src="doc/gif/g1-mimic-real.gif" width="300"/> |
+Some portions of mjlab are forked from external projects:
 
+- **`src/mjlab/utils/lab_api/`** — Utilities forked from [NVIDIA Isaac
+  Lab](https://github.com/isaac-sim/IsaacLab) (BSD-3-Clause license, see file
+  headers)
 
-## 🎉  Acknowledgements
+Forked components retain their original licenses. See file headers for details.
 
-This project would not be possible without the contributions of the following repositories:
+## Acknowledgments
 
-- [mjlab](https://github.com/mujocolab/mjlab.git): training and execution framework
-- [whole_body_tracking](https://github.com/HybridRobotics/whole_body_tracking.git): versatile humanoid motion tracking framework
-- [rsl_rl](https://github.com/leggedrobotics/rsl_rl.git): reinforcement learning algorithm implementation
-- [mujoco_warp](https://github.com/google-deepmind/mujoco_warp.git): GPU-accelerated rendering and simulation interface
-- [mujoco](https://github.com/google-deepmind/mujoco.git): high-fidelity rigid-body physics engine
+mjlab wouldn't exist without the excellent work of the Isaac Lab team, whose API
+design and abstractions mjlab builds upon.
+
+Thanks to the MuJoCo Warp team — especially Erik Frey and Taylor Howell — for
+answering our questions, giving helpful feedback, and implementing features
+based on our requests countless times.

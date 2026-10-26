@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-set -euo pipefail
-PACE_REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-cd "$PACE_REPO"
-source scripts/pace/env.sh --no-activate
-if [[ -z "${SLURM_JOB_ID:-}" || "$(hostname -s)" == login* ]]; then
-  echo 'Enter the GPU compute node first: salloc ..., then srun --pty bash -l' >&2
-  exit 1
+set -eo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh" --no-activate
+if [[ ! -x "$MJLAB_ENV/bin/python" ]]; then
+  conda create --yes --prefix "$MJLAB_ENV" --channel conda-forge python=3.12 uv
 fi
-if [[ ! -x "$PACE_ENV/bin/python" ]]; then
-  conda create --yes --prefix "$PACE_ENV" python=3.11.16
+source "$MJLAB_REPO/scripts/pace/env.sh" --activate
+set -u
+
+if ! command -v uv >/dev/null 2>&1; then
+  conda install --yes --prefix "$MJLAB_ENV" --channel conda-forge uv
 fi
-"$PACE_ENV/bin/python" -m pip install -r requirements-pace.lock.txt
-"$PACE_ENV/bin/python" -m pip install --no-deps -e .
-"$PACE_ENV/bin/python" -m pip check
-"$PACE_ENV/bin/python" scripts/pace/check_environment.py
-echo 'Ready. Run: source scripts/pace/env.sh'
+cd "$MJLAB_REPO"
+# Keep Conda's uv and seed packages while installing the locked source package.
+uv sync --locked --inexact --no-dev --extra cu130 --python "$MJLAB_ENV/bin/python"
+printf '\nInstalled mjlab from %s\n' "$MJLAB_REPO"
+printf 'Enter a GPU compute node before running the environment check or training.\n'
