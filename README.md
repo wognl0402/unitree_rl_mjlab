@@ -56,6 +56,10 @@ separate from the earlier Unitree environment. There is no separate installer
 to run and no second mjlab repository to clone. Do not install the old Unitree
 `setup.py` package into this environment.
 
+For training directly in your terminal, continue with
+[interactive training](#interactive-training-without-sbatch). For batch jobs
+that run independently of your SSH terminal, follow steps 3–5 below.
+
 ## 3. Submit a short GPU test — on the PACE login node
 
 Stay in the repository root:
@@ -113,6 +117,50 @@ iterations. Increase the job time within your account limits when needed.
 
 Scratch is temporary. Back up useful checkpoints and record the source commit.
 Avoid changing a checkout or environment while its jobs are running.
+
+## Interactive training without sbatch
+
+Complete steps 1–2 first. In your PACE terminal, reserve a GPU and enter its
+compute node:
+
+```bash
+salloc --partition=ice-gpu \
+  --constraint=cuda13 --gres=gpu:1 --nodes=1 --ntasks=1 \
+  --cpus-per-task=4 --mem=32G --time=01:00:00
+srun --pty bash -l
+cd ~/scratch/mjlab
+source env.sh --check
+```
+
+Wait for the allocation and the GPU check to succeed. Then run training directly
+in that compute-node terminal:
+
+```bash
+uv run train Mjlab-Velocity-Flat-Unitree-G1 \
+  --env.scene.num-envs 32 \
+  --agent.max-iterations 2 \
+  --agent.logger tensorboard \
+  --agent.run-name interactive_smoke
+```
+
+Progress and errors appear in your terminal. The short test should complete two
+iterations and save a checkpoint under
+`logs/rsl_rl/g1_velocity/<timestamp>_interactive_smoke/`.
+
+After that succeeds, start a longer run in the same compute-node shell:
+
+```bash
+uv run train Mjlab-Velocity-Flat-Unitree-G1 \
+  --env.scene.num-envs 1024 \
+  --agent.max-iterations 1000 \
+  --agent.logger tensorboard \
+  --agent.run-name interactive_g1
+```
+
+Keep the SSH terminal open while training. The one-hour allocation limit still
+applies. Ctrl+C stops training; when finished, exit the compute shell and then
+the allocation shell to release the GPU. This path uses no batch script, but
+PACE still requires a Slurm GPU allocation for simulation and training.
 
 ## Optional: open the robot viewer
 

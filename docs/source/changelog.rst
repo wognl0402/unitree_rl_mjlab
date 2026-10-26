@@ -8,6 +8,7 @@ Upcoming version (not yet released)
 Added
 ^^^^^
 
+- The teaching README includes interactive GPU training without ``sbatch``.
 - This teaching branch has a self-contained root ``env.sh`` that creates and
   activates the PACE environment, with the complete setup sequence in the README.
 - This teaching branch includes RL concepts, an environment-registration guide,
