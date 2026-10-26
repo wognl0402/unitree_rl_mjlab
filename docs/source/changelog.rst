@@ -46,6 +46,8 @@ Changed
 Fixed
 ^^^^^
 
+- The PACE helper normalizes Conda's environment-directory aliases so the
+  ``anaconda3`` module does not fail with ``MultipleKeysError`` on first setup.
 - ``posture`` and ``variable_posture`` now pair each joint with its own ``std`` when
   ``asset_cfg.preserve_order=True``.
 - ``apply_body_impulse`` now applies ``body_point_offset`` in the body frame, as

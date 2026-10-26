@@ -16,6 +16,8 @@ args = sys.argv[1:]
 with open(os.environ["PACE_TEST_CALLS"], "a") as stream:
     stream.write(json.dumps({"program": "conda", "args": args}) + "\n")
 if args == ["info", "--base"]:
+    if os.environ.get("CONDA_ENVS_PATH") and os.environ.get("CONDA_ENVS_DIRS"):
+        sys.exit(19)
     print(os.environ["PACE_TEST_CONDA_BASE"])
 else:
     if os.environ.get("PACE_TEST_CONDA_FAIL"):
@@ -163,6 +165,14 @@ def test_first_install_reuse_repair_and_lock_change(pace_setup):
 def test_loads_conda_module_when_needed(pace_setup):
   _, env = pace_setup
   result, _ = run_setup(dict(env, PATH="/usr/bin:/bin"), module=True)
+  assert result.returncode == 0, result.stderr
+
+
+def test_normalizes_inherited_conda_directory_aliases(pace_setup):
+  _, env = pace_setup
+  result, _ = run_setup(
+    dict(env, CONDA_ENVS_PATH="/legacy/envs", CONDA_ENVS_DIRS="/module/envs")
+  )
   assert result.returncode == 0, result.stderr
 
 

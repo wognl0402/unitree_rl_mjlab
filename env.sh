@@ -26,7 +26,7 @@ _mjlab_env_main() {
   fi
   export MJLAB_WORK="${MJLAB_WORK:-$HOME/scratch}"
   export MJLAB_ENV="${MJLAB_ENV:-$MJLAB_WORK/.conda/envs/mjlab-upstream-pace}"
-  export CONDA_ENVS_PATH="$MJLAB_WORK/.conda/envs"
+  export CONDA_ENVS_DIRS="$MJLAB_WORK/.conda/envs"
   export CONDA_PKGS_DIRS="$MJLAB_WORK/.conda/pkgs"
   export XDG_CACHE_HOME="$MJLAB_WORK/.cache"
   export UV_CACHE_DIR="$XDG_CACHE_HOME/uv"
@@ -45,7 +45,7 @@ _mjlab_env_main() {
   export MUJOCO_GL=egl
   export PYTHONUNBUFFERED=1
 
-  mkdir -p "$CONDA_ENVS_PATH" "$CONDA_PKGS_DIRS" "$UV_CACHE_DIR" \
+  mkdir -p "$CONDA_ENVS_DIRS" "$CONDA_PKGS_DIRS" "$UV_CACHE_DIR" \
     "$PIP_CACHE_DIR" "$TORCH_HOME" "$TRITON_CACHE_DIR" "$WARP_CACHE_PATH" \
     "$MPLCONFIGDIR" "$WANDB_DIR" "$WANDB_CACHE_DIR" || return 1
 
@@ -56,6 +56,8 @@ _mjlab_env_main() {
     fi
     module load anaconda3 || return 1
   fi
+  # Conda treats these as aliases and rejects configurations containing both.
+  unset CONDA_ENVS_PATH
   local conda_base
   conda_base="$(conda info --base)" || return 1
   source "$conda_base/etc/profile.d/conda.sh" || return 1
