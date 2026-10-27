@@ -8,6 +8,8 @@ Upcoming version (not yet released)
 Added
 ^^^^^
 
+- The teaching branch documents a traced flat-ground G1 training example and
+  the minimum MDP, initial-pose and contact changes for a crawling task.
 - The teaching README includes interactive GPU training without ``sbatch``.
 - This teaching branch has a self-contained root ``env.sh`` that creates and
   activates the PACE environment, with the complete setup sequence in the README.

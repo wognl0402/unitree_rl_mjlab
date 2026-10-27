@@ -6,6 +6,9 @@ Work from one repository throughout the tutorial.
 Follow the [main README](../../README.md) for the complete PACE setup and job
 submission sequence. This page explains the ideas behind those commands.
 Then use the [environment guide](ADDING_ENVIRONMENTS.md) to change a task.
+The [G1 execution walkthrough and crawling plan](G1_EXECUTION_FLOW_AND_CRAWLING.md)
+follows one example from task import through PPO and maps the required changes
+for floor-based movement.
 
 ## What is reinforcement learning?
 

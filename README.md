@@ -225,6 +225,7 @@ directories.
 | What you want to find | File or guide |
 | --- | --- |
 | RL concepts and the training loop | [RL basics](docs/pace/README.md) |
+| Trace a complete G1 training run and plan crawling | [Execution walkthrough](docs/pace/G1_EXECUTION_FLOW_AND_CRAWLING.md) |
 | G1 observations, rewards, and commands | [Base velocity task](src/mjlab/tasks/velocity/velocity_env_cfg.py) and [G1 configuration](src/mjlab/tasks/velocity/config/g1/env_cfgs.py) |
 | Generic MDP implementations | [`src/mjlab/envs/mdp/`](src/mjlab/envs/mdp) |
 | Velocity-specific MDP implementations | [`src/mjlab/tasks/velocity/mdp/`](src/mjlab/tasks/velocity/mdp) |
