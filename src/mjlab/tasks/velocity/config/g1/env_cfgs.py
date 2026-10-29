@@ -1,14 +1,19 @@
 """Unitree G1 velocity environment configurations."""
 
+import mujoco
+
 from mjlab.asset_zoo.robots import (
   G1_ACTION_SCALE,
   get_g1_robot_cfg,
 )
+from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import (
   ContactMatch,
   ContactSensorCfg,
@@ -216,5 +221,59 @@ def unitree_g1_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     assert isinstance(twist_cmd, UniformVelocityCommandCfg)
     twist_cmd.ranges.lin_vel_x = (-1.5, 2.0)
     twist_cmd.ranges.ang_vel_z = (-0.7, 0.7)
+
+  return cfg
+
+
+BOX_HALF_SIZE = 0.15
+
+
+def get_box_spec() -> mujoco.MjSpec:
+  """A free-floating box the robot can see (and bump into)."""
+  spec = mujoco.MjSpec()
+  body = spec.worldbody.add_body(name="box")
+  body.add_freejoint(name="box_joint")
+  body.add_geom(
+    name="box_geom",
+    type=mujoco.mjtGeom.mjGEOM_BOX,
+    size=(BOX_HALF_SIZE,) * 3,
+    mass=2.0,
+    rgba=(0.9, 0.5, 0.1, 1.0),
+  )
+  return spec
+
+
+def unitree_g1_flat_box_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Flat G1 velocity task plus a box and a torso-to-box observation."""
+  cfg = unitree_g1_flat_env_cfg(play=play)
+
+  # 1. Spawn the object. Its default position is relative to each env origin.
+  cfg.scene.entities["box"] = EntityCfg(
+    spec_fn=get_box_spec,
+    init_state=EntityCfg.InitialStateCfg(pos=(1.5, 0.0, BOX_HALF_SIZE)),
+  )
+
+  # 2. Re-place the box at every episode reset.
+  cfg.events["reset_box"] = EventTermCfg(
+    func=mdp.reset_root_state_uniform,
+    mode="reset",
+    params={
+      "pose_range": {"x": (-0.5, 0.5), "y": (-1.0, 1.0), "yaw": (-3.14, 3.14)},
+      "velocity_range": {},
+      "asset_cfg": SceneEntityCfg("box"),
+    },
+  )
+
+  # 3. Observe the box from the torso. Both groups get it; the actor input
+  # grows by 3, so checkpoints from the plain flat task are not compatible.
+  box_obs = ObservationTermCfg(
+    func=mdp.body_to_object_displacement,
+    params={
+      "object_name": "box",
+      "asset_cfg": SceneEntityCfg("robot", body_names=("torso_link",)),
+    },
+  )
+  cfg.observations["actor"].terms["box_displacement"] = box_obs
+  cfg.observations["critic"].terms["box_displacement"] = box_obs
 
   return cfg

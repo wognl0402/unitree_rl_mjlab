@@ -8,6 +8,9 @@ Upcoming version (not yet released)
 Added
 ^^^^^
 
+- The teaching branch has a new-environment tutorial with a minimal
+  policy/env loop script and a ``Mjlab-Velocity-Flat-Box-Unitree-G1`` task that
+  adds a box and a ``body_to_object_displacement`` observation.
 - The teaching branch documents a traced flat-ground G1 training example and
   the minimum MDP, initial-pose and contact changes for a crawling task.
 - The teaching README includes interactive GPU training without ``sbatch``.
